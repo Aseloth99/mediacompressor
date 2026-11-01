@@ -1,0 +1,14 @@
+PyQt6>=6.6.0
+Pillow>=10.0.0
+piexif>=1.1.3
+# HEIC/HEIF okuma: image_compressor.py pillow_heif.register_heif_opener() cagirir. Olmadan
+# .heic/.heif dosyalari acilamaz (sessizce atlanir/hata verir).
+pillow-heif>=0.13.0
+# AVIF: Pillow 11.3'ten itibaren AVIF'i yerel destekler; daha eski Pillow (>=10 izinli) icin
+# eklenti gerekir. Pillow >=11.3 kurulu ortamda gereksiz/ikincil (cift AVIF kaydi) olabilir.
+pillow-avif-plugin>=1.4.0
+# JPEG XL (.jxl) okuma/yazma: imagecodecs.jpegxl_encode/decode kullanilir; goruntu <-> dizi
+# donusumu icin numpy gerekir (imagecodecs numpy'siz de kurulur ama JXL yolu calismaz).
+imagecodecs>=2023.9.18
+numpy>=1.24
+pyinstaller>=6.0.0
