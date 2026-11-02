@@ -248,24 +248,29 @@ def scissors_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
 # Tema simgeleri: anlamsal renkler (güneş sarı, ay ve sistem nötr gri); lacivert/slate ton yok
 # ---------------------------------------------------------------------------------------------------------------
 def theme_system_icon() -> QIcon:
+    """Yarısı açık / yarısı koyu daire (nötr gri); ince kenarlık açık menü zemininde de görünmesini sağlar.
+    Dört Python uygulamasında (FlexiKey, Lumina, MediaCompressor, TransferTCP) aynı çizim ve renkler kullanılır."""
     pix, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(QColor("#6f6f6f")))
-    p.drawEllipse(2, 2, 16, 16)
+    p.drawEllipse(QRectF(2.0, 2.0, 16.0, 16.0))
     p.setBrush(QBrush(QColor("#f2f2f2")))
-    p.drawPie(2, 2, 16, 16, 90 * 16, 180 * 16)
+    p.drawPie(QRectF(2.0, 2.0, 16.0, 16.0), 90 * 16, 180 * 16)
+    p.setPen(QPen(QColor("#8c8c8c"), 1.0))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QRectF(2.5, 2.5, 15.0, 15.0))
     return _finish(pix, p)
 
 
 def theme_dark_icon() -> QIcon:
-    """Hilal: nötr açık gri daireden zemin rengine kaydırılmış daire çıkarılarak çizilir (saydam kesim)."""
+    """Hilal: orta gri (koyu ve açık menüde okunur); daireden kaydırılmış daire çıkarılarak çizilir (saydam kesim)."""
     pix, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     moon = QPainterPath()
     moon.addEllipse(QRectF(3.0, 3.0, 14.0, 14.0))
     cut = QPainterPath()
     cut.addEllipse(QRectF(7.6, 1.2, 12.0, 12.0))
-    p.setBrush(QBrush(QColor("#c9c9c9")))
+    p.setBrush(QBrush(QColor("#9a9a9a")))
     p.drawPath(moon.subtracted(cut))
     return _finish(pix, p)
 

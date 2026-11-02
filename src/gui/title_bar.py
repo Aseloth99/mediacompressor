@@ -245,7 +245,7 @@ class TitleBar(QFrame):
         self.add_files_action.setIcon(icons.file_add_icon(color))
         self.add_folder_action.setIcon(icons.folder_add_icon(color))
         self.exit_action.setIcon(icons.door_exit_icon(self._danger_color))
-        self.theme_btn.setIcon(icons.contrast_icon(color))
+        self.theme_btn.setIcon(icons.theme_system_icon())  # tema simgeleri vurguya göre değil, nötr/anlamsal renkte
         self.lang_btn.setIcon(_globe_icon(color))
         self.settings_btn.setIcon(icons.gear_icon(color))
         spec = ACCENTS.get(self._accent_key)

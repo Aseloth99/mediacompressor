@@ -45,7 +45,7 @@ class TrayIcon(QSystemTrayIcon):
         menu.addAction(self.settings_action)
 
         self.theme_menu = menu.addMenu(t("theme", lang).rstrip(":"))
-        self.theme_menu.setIcon(icons.contrast_icon(self._accent()))
+        self.theme_menu.setIcon(icons.theme_system_icon())
         self.theme_group = QActionGroup(menu)
         self.theme_group.setExclusive(True)
         self._theme_actions: dict[str, QAction] = {}
@@ -104,7 +104,7 @@ class TrayIcon(QSystemTrayIcon):
         self.update_action.setIcon(icons.update_icon(accent))
         self.show_action.setIcon(icons.eye_off_icon(accent) if self._window_shown() else icons.eye_icon(accent))
         self.settings_action.setIcon(icons.gear_icon(accent))
-        self.theme_menu.setIcon(icons.contrast_icon(accent))
+        self.theme_menu.setIcon(icons.theme_system_icon())
         self.lang_menu.setIcon(icons.globe_icon(accent))
         self.quit_action.setIcon(icons.door_exit_icon(self._danger()))
 
