@@ -154,6 +154,9 @@ def _with_accent(base: dict, accent_key: str, dark: bool) -> dict:
     # Durum renkleri (kuyruk tablosu): metin olarak okunabilir tonlar; koyuda parlak, açıkta derin.
     palette["ok_text"] = "#5fcf7f" if dark else "#1b6e36"
     palette["fail_text"] = "#ff7b72" if dark else "#b3261e"
+    # Kaydırma çubuğu tutamacı nötr gri (vurgu yalnızca üzerine gelince): diğer uygulamalarla aynı; her
+    # zaman görünen sol panel çubuğu vurgu renginde göze batıyordu.
+    palette["scroll"] = _mix(base["text"], base["sunken"], 0.28)
     palette["border_focus"] = accent
     palette["success"] = accent
     return palette
@@ -329,6 +332,14 @@ def _build(p: dict) -> str:
             font-weight: 600;
             border-radius: 7px;
             min-height: 28px;
+        }}
+        QPushButton[class="ghost-mini"]:checked {{
+            background-color: {p['accent_soft']};
+            color: {p['accent_text']};
+            border: 1px solid {p['accent']};
+        }}
+        QPushButton#panel_toggle {{
+            padding: 0px;
         }}
 
         QPushButton[class="chip"] {{
@@ -629,12 +640,12 @@ def _build(p: dict) -> str:
             margin: 2px;
         }}
         QScrollBar::handle:vertical {{
-            background: {p['accent']};
+            background: {p['scroll']};
             border-radius: 5px;
             min-height: 28px;
         }}
-        QScrollBar::handle:vertical:hover {{
-            background: {p['accent_hi']};
+        QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {{
+            background: {p['accent']};
         }}
         QScrollBar:horizontal {{
             background: {p['sunken']};
@@ -643,33 +654,18 @@ def _build(p: dict) -> str:
             margin: 2px;
         }}
         QScrollBar::handle:horizontal {{
-            background: {p['accent']};
+            background: {p['scroll']};
             border-radius: 5px;
             min-width: 28px;
         }}
-        QScrollBar::handle:horizontal:hover {{
-            background: {p['accent_hi']};
+        QScrollBar::handle:horizontal:hover, QScrollBar::handle:horizontal:pressed {{
+            background: {p['accent']};
         }}
         QScrollBar::add-line, QScrollBar::sub-line,
         QScrollBar::add-page, QScrollBar::sub-page {{
             background: none; border: none; height: 0; width: 0;
         }}
 
-        QTableWidget {{
-            background-color: {p['raised']};
-            alternate-background-color: {p['surface']};
-            color: {p['text']};
-            border: 1px solid {p['border']};
-            border-radius: 10px;
-            gridline-color: {p['border']};
-            outline: none;
-        }}
-        QTableWidget::item {{ padding: 8px 12px; border: none; }}
-        /* seçili satır: tüm satırı boyayan düz vurgu yerine yumuşak ton (metin okunur kalır) */
-        QTableWidget::item:selected, QTableWidget::item:selected:!active {{
-            background-color: {p['accent_soft']};
-            color: {p['text']};
-        }}
         /* Kuyruk listesi: satırları kendi temsilcisi çizer (iki sütun, durum renkleri, istisna etiketi) */
         QListWidget#queue_panel {{
             background-color: {p['raised']};
@@ -677,17 +673,6 @@ def _build(p: dict) -> str:
             border: 1px solid {p['border']};
             border-radius: 10px;
             outline: none;
-        }}
-        QHeaderView {{ background-color: {p['surface']}; border: none; }}
-        QHeaderView::section {{
-            background-color: {p['surface']};
-            color: {p['text_muted']};
-            padding: 0px 12px;
-            min-height: 34px;
-            border: none;
-            border-bottom: 1px solid {p['border']};
-            font-size: 9pt;
-            font-weight: 700;
         }}
 
         QProgressBar {{
@@ -702,6 +687,16 @@ def _build(p: dict) -> str:
         QProgressBar::chunk {{
             background-color: {p['accent']};
             border-radius: 7px;
+        }}
+        /* alttaki genel ilerleme: yazısız ince çizgi (yüzde üstteki satırda) */
+        QProgressBar#slim_bar {{
+            border: none;
+            border-radius: 3px;
+            min-height: 6px;
+            max-height: 6px;
+        }}
+        QProgressBar#slim_bar::chunk {{
+            border-radius: 3px;
         }}
 
         QFrame[frameShape="6"] {{
@@ -746,6 +741,16 @@ def _build(p: dict) -> str:
             background-color: {p['sunken']};
             border: 1px solid {p['border']};
             border-radius: 10px;
+        }}
+        /* sol panelin kaydırılan içeriği ve altına sabitlenen düğme şeridi panelin zeminini paylaşır */
+        QWidget#left_content {{
+            background: transparent;
+        }}
+        QFrame#left_footer {{
+            background: transparent;
+            border: none;
+            border-top: 1px solid {p['hi2']};  /* kaydırılan kartlar bu çizginin altına girer */
+            border-radius: 0px;
         }}
 
         QLabel {{
@@ -840,12 +845,15 @@ def _build(p: dict) -> str:
             border-radius: 12px;
         }}
         QFrame#group_card QLabel#section_caption {{ padding-top: 0px; }}
+        /* qproperty-indent: üst dolgu QLabel'e çerçeve kazandırıyor, Qt de metni yarım "x" (~3 px) içeri
+           itiyordu; başlık altındaki alan etiketleri ve kutularla aynı çizgiden başlamıyordu. */
         QLabel#section_caption {{
             color: {p['text_muted']};
             font-size: 8.5pt;
             font-weight: 700;
             min-height: 1.3em;
             padding-top: 4px;
+            qproperty-indent: 0;
         }}
         QLabel#path_box {{
             background-color: {p['base']};

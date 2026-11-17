@@ -286,6 +286,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self.theme.theme_changed.connect(lambda *_: self._repolish())
         self._restore_settings()
+        self._set_left_collapsed(bool(self.config.get("left_panel_collapsed")), save=False)
         self._retranslate_ui()
         self._update_queue_actions()
         self._bind_updater()
@@ -390,14 +391,6 @@ class MainWindow(QMainWindow):
             self.profile_buttons[key] = btn
             chips.addWidget(btn)
         chips.addStretch()
-        self.log_toggle = QPushButton(t("log", self.lang))
-        self.log_toggle.setCheckable(True)
-        self.log_toggle.setProperty("class", "chip")
-        self.log_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.log_toggle.toggled.connect(self._toggle_log)
-        self.log_toggle.style().unpolish(self.log_toggle)
-        self.log_toggle.style().polish(self.log_toggle)
-        chips.addWidget(self.log_toggle)
         body_layout.addLayout(chips)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -405,13 +398,12 @@ class MainWindow(QMainWindow):
         self.splitter.setHandleWidth(16)
         body_layout.addWidget(self.splitter, 1)
 
-        left = QFrame()
-        left.setObjectName("left_panel")
+        left = QWidget()
+        left.setObjectName("left_content")
         left.setMinimumWidth(280)
-        left.setMaximumWidth(380)
         left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_l = QVBoxLayout(left)
-        left_l.setContentsMargins(12, 12, 12, 12)
+        left_l.setContentsMargins(12, 12, 12, 8)
         left_l.setSpacing(10)
 
         self._captions: dict[str, QLabel] = {}
@@ -545,7 +537,6 @@ class MainWindow(QMainWindow):
         self.adv_btn = QPushButton(t("adv_settings", self.lang))
         self.adv_btn.setProperty("class", "ghost")
         self.adv_btn.clicked.connect(self.adv_dialog.exec)
-        left_l.addWidget(self.adv_btn)
 
         self.preview_btn = QPushButton(t("preview_btn", self.lang))
         self.preview_btn.setProperty("class", "ghost")
@@ -553,23 +544,41 @@ class MainWindow(QMainWindow):
         self.preview_btn.setToolTip(t("preview_tooltip", self.lang))
         self.preview_btn.clicked.connect(self._open_preview_from_button)
         self.preview_btn.setIconSize(QSize(18, 18))
-        left_l.addWidget(self.preview_btn)
 
         left_l.addStretch(1)
-        # Sol panel kısa pencerede kaydırılır (eskiden kartlar üst üste biniyor, düğmeler kırpılıyordu).
+        # Kartlar kısa pencerede kaydırılır (eskiden üst üste biniyor, düğmeler kırpılıyordu); Gelişmiş ve
+        # Önizleme düğmeleri kaydırılan alanın altına sabitlenir: 1280×760'ta da kaydırmadan görünürler.
         left_scroll = QScrollArea()
         left_scroll.setObjectName("left_scroll")
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        left_scroll.setMinimumWidth(left.minimumWidth() + 14)  # dikey kaydırma çubuğu için pay
-        left_scroll.setMaximumWidth(left.maximumWidth() + 14)
         left_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_scroll.viewport().setAutoFillBackground(False)
         left_scroll.setStyleSheet("QScrollArea#left_scroll { background: transparent; border: none; }")
         left_scroll.setWidget(left)
         self.left_scroll = left_scroll
-        self.splitter.addWidget(left_scroll)
+
+        footer = QFrame()
+        footer.setObjectName("left_footer")
+        footer_l = QVBoxLayout(footer)
+        footer_l.setContentsMargins(12, 10, 12, 12)
+        footer_l.setSpacing(8)
+        footer_l.addWidget(self.adv_btn)
+        footer_l.addWidget(self.preview_btn)
+        self.left_footer = footer
+
+        self.left_panel = QFrame()
+        self.left_panel.setObjectName("left_panel")
+        self.left_panel.setMinimumWidth(left.minimumWidth() + 14)  # dikey kaydırma çubuğu için pay
+        self.left_panel.setMaximumWidth(380 + 14)
+        self.left_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel_l = QVBoxLayout(self.left_panel)
+        panel_l.setContentsMargins(1, 1, 1, 1)  # kenarlık çizgisinin içinde kalsın
+        panel_l.setSpacing(0)
+        panel_l.addWidget(left_scroll, 1)
+        panel_l.addWidget(footer)
+        self.splitter.addWidget(self.left_panel)
 
         # Profilin belirlediği bir değer değişince profil "Özel"e geçer (ses ve resim kalitesi de: eskiden
         # Dengeli'de sesi 192k yapmak yeniden açılışta 128k'ye dönüyordu).
@@ -595,6 +604,16 @@ class MainWindow(QMainWindow):
         right_l.setContentsMargins(12, 12, 12, 12)
         right_l.setSpacing(10)
         head = QHBoxLayout()
+        head.setSpacing(8)
+        # Ayar panelini gizle/göster: kuyruk tüm genişliği alır; durum ayarlarda saklanır.
+        self.panel_toggle = QPushButton()
+        self.panel_toggle.setObjectName("panel_toggle")
+        self.panel_toggle.setProperty("class", "ghost-mini")
+        self.panel_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.panel_toggle.setFixedSize(32, 28)
+        self.panel_toggle.setIconSize(QSize(18, 18))
+        self.panel_toggle.clicked.connect(lambda: self._set_left_collapsed(not self._left_collapsed))
+        head.addWidget(self.panel_toggle)
         self.queue_title = QLabel(t("queue", self.lang))
         self.queue_title.setObjectName("section_header")
         head.addWidget(self.queue_title)
@@ -614,17 +633,33 @@ class MainWindow(QMainWindow):
         self.retry_btn.setProperty("class", "ghost-mini")
         self.retry_btn.clicked.connect(self._retry_failed)
         self.retry_btn.hide()
-        for mini in (self.remove_btn, self.clear_btn, self.retry_btn):
+        # İş kaydı kuyruğun altında açılır: düğmesi de kuyruğun başlığında (eskiden profil satırının sağındaydı).
+        self.log_toggle = QPushButton(t("log", self.lang))
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setProperty("class", "ghost-mini")
+        self.log_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.log_toggle.toggled.connect(self._toggle_log)
+        for mini in (self.remove_btn, self.clear_btn, self.retry_btn, self.log_toggle, self.panel_toggle):
             mini.style().unpolish(mini)
             mini.style().polish(mini)
-        head.addWidget(self.retry_btn)
         head.addWidget(self.remove_btn)
         head.addWidget(self.clear_btn)
+        head.addWidget(self.log_toggle)
         right_l.addLayout(head)
+        # Özet satırı ("8 dosya · toplam 2.8 GB") ve iş bitince "Hatalıları Tekrar Dene": başlık en küçük
+        # pencerede de sığsın diye bu düğme özetin sağında durur.
+        self.queue_sub = QWidget()
+        self.queue_sub.setObjectName("plain_box")
+        sub_l = QHBoxLayout(self.queue_sub)
+        sub_l.setContentsMargins(0, 0, 0, 0)
+        sub_l.setSpacing(8)
         self.queue_summary = QLabel("")
         self.queue_summary.setObjectName("hint_label")
         self.queue_summary.hide()
-        right_l.addWidget(self.queue_summary)
+        sub_l.addWidget(self.queue_summary, 1)
+        sub_l.addWidget(self.retry_btn)
+        self.queue_sub.hide()
+        right_l.addWidget(self.queue_sub)
         self.queue = QueuePanel(lang=self.lang)
         self.queue.remove_requested.connect(self._remove_from_queue)
         self.queue.reveal_requested.connect(self._reveal_source)
@@ -676,39 +711,31 @@ class MainWindow(QMainWindow):
         right_col_l.addWidget(action)
 
         # Progress rows only exist while there is something to report (running job / its summary).
+        # Compact: one text line ("5/8 files · 62%") over a slim bar. Each file's own progress is drawn in its
+        # queue row, so the old second (video) bar is gone and the queue keeps its height.
         self.prog_box = QWidget()
-        # Each line of text sits above its bar at full width: a fixed-width label column used to cut off
-        # the file name / remaining time and the finished-job summary.
         prog = QVBoxLayout(self.prog_box)
-        prog.setContentsMargins(4, 2, 4, 2)
-        prog.setSpacing(4)
+        prog.setContentsMargins(4, 0, 4, 0)
+        prog.setSpacing(5)
 
         self.overall_label = QLabel(t("ready", self.lang))
         self.overall_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         self.overall_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.overall = QProgressBar()
+        self.overall.setObjectName("slim_bar")
         self.overall.setValue(0)
-        self.overall.setTextVisible(True)
+        self.overall.setTextVisible(False)
+        self.overall.setFixedHeight(6)
         self.overall.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         prog.addWidget(self.overall_label)
         prog.addWidget(self.overall)
-        prog.addSpacing(6)
-
-        self.video_label = QLabel(t("video_waiting", self.lang))
-        self.video_label.setObjectName("hint_label")
-        self.video_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        self.video_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.video_bar = QProgressBar()
-        self.video_bar.setValue(0)
-        self.video_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        prog.addWidget(self.video_label)
-        prog.addWidget(self.video_bar)
 
         right_col_l.addWidget(self.prog_box)
         self.prog_box.hide()
 
         self.stats = _AutoHideLabel("")
         self.stats.setObjectName("hint_label")
+        self.stats.setContentsMargins(4, 0, 4, 0)  # ilerleme satırlarıyla aynı sol hiza (prog_box kenar boşluğu)
         right_col_l.addWidget(self.stats)
 
         self.splitter.addWidget(right_col)
@@ -739,13 +766,24 @@ class MainWindow(QMainWindow):
         self._captions[key] = label
         return label
 
-    def _show_progress(self, overall: bool = True, video: bool = False) -> None:
-        """Show only the progress rows that have something to say; none at all when idle."""
-        for w in (self.overall_label, self.overall):
-            w.setVisible(overall)
-        for w in (self.video_label, self.video_bar):
-            w.setVisible(video)
-        self.prog_box.setVisible(overall or video)
+    def _show_progress(self, visible: bool = True) -> None:
+        """The overall progress line exists only while there is something to report; none at all when idle."""
+        self.prog_box.setVisible(visible)
+
+    def _set_left_collapsed(self, collapsed: bool, save: bool = True) -> None:
+        """Ayar panelini gizler/gösterir (kuyruk tüm genişliği alır); durum sonraki açılışa kalır."""
+        self._left_collapsed = bool(collapsed)
+        self.left_panel.setVisible(not self._left_collapsed)
+        self._refresh_panel_toggle()
+        if save:
+            self.config.set("left_panel_collapsed", self._left_collapsed)
+
+    def _refresh_panel_toggle(self) -> None:
+        collapsed = getattr(self, "_left_collapsed", False)
+        color = icons.accent_color_for(self.theme.get_palette())
+        self.panel_toggle.setIcon(icons.sidebar_icon(color, collapsed))
+        self.panel_toggle.setToolTip(t("panel_show" if collapsed else "panel_hide", self.lang))
+        self.panel_toggle.setAccessibleName(self.panel_toggle.toolTip())
 
     def _setup_shortcuts(self):
         from PyQt6.QtGui import QShortcut, QKeySequence
@@ -943,6 +981,7 @@ class MainWindow(QMainWindow):
         self.queue.set_status_palette(palette)
         self.title_bar.apply_palette(palette)  # menü/düğme simgeleri seçilen vurguya uysun
         self.preview_btn.setIcon(icons.eye_icon(icons.accent_color_for(palette)))
+        self._refresh_panel_toggle()
         self.update()
 
     def _open_settings(self):
@@ -1043,6 +1082,7 @@ class MainWindow(QMainWindow):
         self.open_btn.setText(t("open_output", self.lang))
         self.open_when_done.setText(t("open_when_done", self.lang))
         self.log_toggle.setText(t("log", self.lang))
+        self._refresh_panel_toggle()
         fit_text_widgets(self)
 
     def _apply_round_mask(self) -> None:
@@ -1390,6 +1430,7 @@ class MainWindow(QMainWindow):
         if n and total:
             self.queue_summary.setText(t("queue_summary", self.lang).format(n=n, size=format_bytes(total)))
         self.queue_summary.setVisible(bool(n and total) and not running)
+        self.queue_sub.setVisible(not self.queue_summary.isHidden() or not self.retry_btn.isHidden())
         if not running:
             # Boş kuyrukta başlatılacak bir şey yok: düğme pasif kalır, nedenini ipucu söyler.
             self.start_btn.setEnabled(has_queue)
@@ -1438,7 +1479,7 @@ class MainWindow(QMainWindow):
         self.drop.set_status(t("not_selected", self.lang))
         self.drop.set_folder_open_visible(False)
         self.retry_btn.hide()
-        self._show_progress(False, False)
+        self._show_progress(False)
         self.stats.setText("")
         self._sync_media_controls(False, False)
         self._update_queue_actions()
@@ -1499,7 +1540,7 @@ class MainWindow(QMainWindow):
     def _on_prepare_progress(self, p: float) -> None:
         if not self.worker:
             self.overall_label.setText("FFmpeg  ·  " + t("update_downloading", self.lang))
-            self._show_progress(True, False)
+            self._show_progress(True)
         self.overall.setValue(int(p * 100))
 
     def _on_prepared(self, manager: FFmpegManager, gpu):
@@ -1529,7 +1570,7 @@ class MainWindow(QMainWindow):
             self.gpu_label.setText(t("gpu_none_hint", self.lang))
         if not self.worker:
             self.overall.setValue(0)
-            self._show_progress(False, False)
+            self._show_progress(False)
 
     def _collect_settings(self) -> dict | None:
         queued = self.queue.paths()
@@ -1591,9 +1632,7 @@ class MainWindow(QMainWindow):
         self.queue.set_files(files)
         self.retry_btn.hide()
         self.overall.setValue(0)
-        self.video_bar.setValue(0)
-        self.video_label.setText(t("video_waiting", self.lang))
-        self._show_progress(True, False)
+        self._show_progress(True)
         self._job_t0 = time.time()
         self._eta = JobEta([(p, self._eta_weight(p)) for p in files], self._job_t0)
         self.overall.setMaximum(OVERALL_STEPS)
@@ -1636,30 +1675,18 @@ class MainWindow(QMainWindow):
         if self._eta is not None:
             self._eta.started(path, self._file_t0)
         if Path(path).suffix.lower() in VIDEO_EXTS:
-            name = os.path.basename(path)
-            if len(name) > 36:
-                name = name[:33] + "…"
-            self.video_label.setText(t("video_status_format", self.lang).format(name=name, pct=0, eta=""))
-            self.video_bar.setValue(0)
-            self._show_progress(True, True)
-        else:
-            self._show_progress(True, False)
+            self.queue.set_progress(path, 0.0)  # satırda "%0" ve boş çizgi; resimlerde oran yok
+        self._show_progress(True)
 
     def _on_file_progress(self, path: str, ratio: float):
         self._file_ratio = max(0.0, min(1.0, ratio))
         now = time.time()
         if self._eta is not None:
             self._eta.progress(path, self._file_ratio, now)
-        self.video_bar.setValue(int(self._file_ratio * 100))
-        name = os.path.basename(path)
-        if len(name) > 36:
-            name = name[:33] + "…"
-        pct = int(self._file_ratio * 100)
-        eta = ""
         remain = file_eta(now - self._file_t0, self._file_ratio) if self._file_t0 else None
-        if remain is not None:  # ilk %1'den sonra
-            eta = f"  ·  {t('eta_left', self.lang)} {format_duration(remain, self.lang)}"
-        self.video_label.setText(t("video_status_format", self.lang).format(name=name, pct=pct, eta=eta))
+        eta = format_duration(remain, self.lang) if remain is not None else ""  # ilk %1'den sonra
+        if self.queue.status_of(path) == "run":  # bitiş sinyalinden sonra gelen 1.0 satırı yeniden açmasın
+            self.queue.set_progress(path, self._file_ratio, eta)
         self._refresh_job_stats()
 
     def _refresh_job_stats(self):
@@ -1673,8 +1700,12 @@ class MainWindow(QMainWindow):
         if self._eta is not None:
             if self.overall.maximum() != OVERALL_STEPS:
                 self.overall.setMaximum(OVERALL_STEPS)
-            self.overall.setValue(int(self._eta.fraction() * OVERALL_STEPS))
+            fraction = self._eta.fraction()
+            self.overall.setValue(int(fraction * OVERALL_STEPS))
             remain = self._eta.remaining()
+            # ince çubukta yazı yok: yüzde, dosya sayısının yanında ("5/8 dosya · %62")
+            files = t("files_progress", self.lang).format(done=self._progress_done, total=self._progress_total)
+            self.overall_label.setText(f"{files}  ·  {t('pct', self.lang).format(int(fraction * 100))}")
         if remain is not None:
             remain_str = format_duration(max(0.0, remain), self.lang)
             self.stats.setText(
@@ -1702,9 +1733,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setProperty("class", "primary")
         self.start_btn.style().unpolish(self.start_btn)
         self.start_btn.style().polish(self.start_btn)
-        self.video_bar.setValue(0)
-        self.video_label.setText(t("video_waiting", self.lang))
-        self._show_progress(True, False)
+        self._show_progress(True)
         if not info.get("cancelled") and self._eta is not None:
             self.overall.setValue(OVERALL_STEPS)
         self._job_t0 = 0.0
@@ -1721,12 +1750,13 @@ class MainWindow(QMainWindow):
         if b_in > 0 and ok > 0:
             saved = b_in - b_out
             pct = (saved / b_in) * 100
+            # "·" ayıracı ve dile göre yüzde ("-%74.5" / "-74.5%"): iş sürerken gösterilen satırla aynı biçim
             line = (
-                f"{format_bytes(b_in)} → {format_bytes(b_out)}  |  "
-                f"{t('saved', self.lang)} {format_bytes(saved)} (-%{pct:.1f})"
+                f"{format_bytes(b_in)} → {format_bytes(b_out)}  ·  "
+                f"{t('saved', self.lang)} {format_bytes(saved)} (-{t('pct', self.lang).format(f'{pct:.1f}')})"
             )
             if elapsed_txt:
-                line += f"  |  {t('duration', self.lang)} {elapsed_txt}"
+                line += f"  ·  {t('duration', self.lang)} {elapsed_txt}"
             self.stats.setText(line)
             self._append_log(self.stats.text())
         elif elapsed_txt:

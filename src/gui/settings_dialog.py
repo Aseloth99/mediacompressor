@@ -41,8 +41,8 @@ class SettingsDialog(ChromeDialog):
         layout.setContentsMargins(22, 20, 22, 18)
         layout.setSpacing(16)
 
-        app_title = get_app_name(self.lang)
-        header = QLabel(f"{app_title}  v{VERSION}")
+        # Sürüm yalnızca Güncellemeler bölümünde ("Yüklü sürüm: …"); başlıkta ikinci kez yazılmaz.
+        header = QLabel(get_app_name(self.lang))
         header.setObjectName("section_header")
         layout.addWidget(header)
 

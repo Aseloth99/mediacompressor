@@ -13,6 +13,14 @@ from . import icons
 
 THEME_KEYS = ("system", "dark", "light")
 TITLE_BAR_HEIGHT = 38  # tüm uygulamalarda aynı başlık çubuğu yüksekliği
+# Menüde ad ile kısayol arasına eklenen boşluk: Qt'nin kendi payı (~12 px) "Klasör Seç…Ctrl+Shift+O"
+# gibi bitişik okunuyordu. Kısayol sütunu sola hizalı çizildiği için hepsi aynı yerden başlar.
+SHORTCUT_GAP = " " * 6
+
+
+def menu_text(label: str, keys: str) -> str:
+    """Menü satırı: "ad<TAB>boşluk+kısayol" (kısayolu ana pencere bağlar; metin yalnızca bilgi)."""
+    return f"{label}\t{SHORTCUT_GAP}{keys}"
 
 _THEME_ICONS = {
     "system": icons.theme_system_icon,
@@ -304,9 +312,9 @@ class TitleBar(QFrame):
         self._lang = lang
         self.title.setText(get_app_name(lang))
         self.file_btn.setText(t("menu_file", lang))
-        self.add_files_action.setText(f"{t('menu_add_files', lang)}\tCtrl+O")
-        self.add_folder_action.setText(f"{t('menu_add_folder', lang)}\tCtrl+Shift+O")
-        self.exit_action.setText(f"{t('tray_quit', lang)}\tCtrl+Q")
+        self.add_files_action.setText(menu_text(t("menu_add_files", lang), "Ctrl+O"))
+        self.add_folder_action.setText(menu_text(t("menu_add_folder", lang), "Ctrl+Shift+O"))
+        self.exit_action.setText(menu_text(t("tray_quit", lang), "Ctrl+Q"))
         self.theme_btn.setText(t("theme", lang).rstrip(":"))
         self.lang_btn.setText(t("language", lang).rstrip(":"))
         self.color_btn.setText(t("accent", lang).rstrip(":"))

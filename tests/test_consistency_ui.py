@@ -20,7 +20,7 @@ from _support import ROOT  # noqa: E402
 
 from PyQt6.QtCore import QEventLoop, QTimer, Qt  # noqa: E402
 from PyQt6.QtGui import QIcon  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QCheckBox, QPushButton, QSystemTrayIcon  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QPushButton, QSystemTrayIcon  # noqa: E402
 
 from src.gui import main_window as mw  # noqa: E402
 from src.gui import message_box  # noqa: E402
@@ -100,11 +100,31 @@ class TitleBarMenuTests(_Base):
         self.assertEqual(bar.file_btn.text(), "Dosya")
         actions = bar.file_btn.menu().actions()
         self.assertEqual([a.isSeparator() for a in actions], [False, False, True, False])
-        self.assertEqual(actions[0].text().split("\t"), ["Dosya Seç…", "Ctrl+O"])
-        self.assertEqual(actions[1].text().split("\t"), ["Klasör Seç…", "Ctrl+Shift+O"])
-        self.assertEqual(actions[3].text().split("\t"), ["Çıkış", "Ctrl+Q"])
+        def parts(act):
+            return [part.strip() for part in act.text().split("\t")]
+
+        self.assertEqual(parts(actions[0]), ["Dosya Seç…", "Ctrl+O"])
+        self.assertEqual(parts(actions[1]), ["Klasör Seç…", "Ctrl+Shift+O"])
+        self.assertEqual(parts(actions[3]), ["Çıkış", "Ctrl+Q"])
         for act in (actions[0], actions[1], actions[3]):
             self.assertFalse(act.icon().isNull(), "vektör simge")
+
+    def test_file_menu_leaves_room_between_names_and_shortcuts(self) -> None:
+        from PyQt6.QtGui import QFontMetrics
+
+        ThemeManager(self.app).apply_from_setting("dark")
+        bar = self._bar()
+        menu = bar.file_btn.menu()
+        menu.ensurePolished()
+        menu.adjustSize()
+        fm = QFontMetrics(menu.font())
+        for act in (bar.add_files_action, bar.add_folder_action, bar.exit_action):
+            self.assertTrue(act.text().split("\t")[1].startswith("  "), "kısayol sütunundan önce boşluk")
+        # en uzun ad + en uzun kısayol + simge/dolgu payından belirgin geniş: iki sütun arasında boşluk var
+        longest_name = max(fm.horizontalAdvance(a.text().split("\t")[0]) for a in menu.actions() if not a.isSeparator())
+        longest_keys = fm.horizontalAdvance("Ctrl+Shift+O")
+        row = menu.actionGeometry(bar.add_folder_action).width()
+        self.assertGreaterEqual(row - longest_name - longest_keys, 16 + 28 + 30 + 24, row)
 
     def test_file_menu_texts_follow_the_language(self) -> None:
         bar = self._bar("en")
@@ -651,7 +671,72 @@ class MessageBoxWiringTests(WindowCase):
             by_text = {a.text(): a for a in menu.actions()}
             self.assertFalse(by_text["Canlı Önizleme / Karşılaştır"].icon().isNull())
             self.assertFalse(by_text["Kırp…"].icon().isNull())
+            # simgesiz satır kalmasın: yoksa metinler iki farklı hizada başlar
+            rows = [a for a in menu.actions() if not a.isSeparator()]
+            self.assertEqual(len(rows), 6, [a.text() for a in rows])
+            for act in rows:
+                self.assertFalse(act.icon().isNull(), act.text())
         self.assertFalse(win.preview_btn.icon().isNull())
+
+    def test_percent_follows_the_language(self) -> None:
+        self.assertEqual(t("pct", "tr").format("74.5"), "%74.5")
+        self.assertEqual(t("pct", "en").format("74.5"), "74.5%")
+        from src.gui.queue_panel import progress_text
+
+        en = progress_text(0.41, "58 s", "en")
+        self.assertEqual(en, "41% · ~58 s")
+        self.assertEqual(progress_text(0.41, "58 sn", "tr"), "%41 · ~58 sn")
+
+    def test_job_summary_line_uses_dots_and_language_percent(self) -> None:
+        win = self.make_window(language="en")
+        win.notifier = mock.MagicMock()
+        win.open_when_done.setChecked(False)
+        win._on_job_finished({"ok": 2, "bytes_in": 4_000_000, "bytes_out": 1_000_000, "elapsed": 12})
+        line = win.stats.text()
+        self.assertIn("(-75.0%)", line)
+        self.assertNotIn("|", line)
+        self.assertIn("  ·  ", line)
+
+    def test_stats_line_starts_where_the_progress_text_starts(self) -> None:
+        win = self.make_window()
+        self.assertEqual(win.stats.contentsMargins().left(), win.prog_box.layout().contentsMargins().left())
+
+    def test_section_captions_are_not_indented(self) -> None:
+        # Üst dolgu QLabel'e çerçeve verir; girinti -1 kalırsa Qt metni ~3 px içeri iter (alan etiketleriyle kayar).
+        win = self.make_window()
+        captions = [lab for lab in win.findChildren(QLabel) if lab.objectName() == "section_caption"]
+        self.assertTrue(captions)
+        for lab in captions:
+            lab.ensurePolished()
+            self.assertEqual(lab.indent(), 0, lab.text())
+
+
+class SettingsHeaderTests(_Base):
+    def test_version_is_written_once_in_the_updates_section(self) -> None:
+        from src.core.app_info import VERSION
+
+        ThemeManager(self.app).apply_from_setting("dark")
+        dlg = SettingsDialog(_config(language="tr"), "", "", None)
+        self.addCleanup(dlg.deleteLater)
+        texts = [lab.text() for lab in dlg.findChildren(QLabel)]
+        self.assertEqual(sum(VERSION in text for text in texts), 1, texts)
+        headers = [lab.text() for lab in dlg.findChildren(QLabel) if lab.objectName() == "section_header"]
+        self.assertIn("Medya Sıkıştırıcı", headers)
+        self.assertIn(VERSION, dlg.update_status.text())
+
+
+class ScrollBarStyleTests(unittest.TestCase):
+    def test_scroll_handle_is_neutral_and_accent_only_on_hover(self) -> None:
+        from src.utils import theme_manager as tm
+
+        for base, dark in ((tm.DARK, True), (tm.LIGHT, False)):
+            p = tm._with_accent(base, "cyan", dark)
+            sheet = re.sub(r"\s+", " ", tm._build(p))
+            handle = re.search(r"QScrollBar::handle:vertical \{ background: (#[0-9a-f]{6});", sheet)
+            self.assertIsNotNone(handle)
+            self.assertNotEqual(handle.group(1), p["accent"])
+            self.assertEqual(handle.group(1), p["scroll"])
+            self.assertIn(f"QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {{ background: {p['accent']}; }}", sheet)
 
 
 if __name__ == "__main__":
