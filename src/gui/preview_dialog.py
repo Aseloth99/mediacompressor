@@ -1072,13 +1072,13 @@ class PreviewDialog(ChromeDialog):
                 savings = 0.0
                 if self._ref_frame_bytes > 0 and self._comp_bytes:
                     savings = max(0.0, (1.0 - len(self._comp_bytes) / self._ref_frame_bytes) * 100.0)
-                badge = f"{t('preview_badge_frame', self.lang)} (-%{savings:.0f})"
+                badge = f"{t('preview_badge_frame', self.lang)} (-{t('pct', self.lang).format(f'{savings:.0f}')})"
             else:
                 fmt = self.format_combo.currentText()
                 savings = 0.0
                 if self._orig_size_bytes > 0 and self._comp_bytes:
                     savings = max(0.0, (1.0 - len(self._comp_bytes) / self._orig_size_bytes) * 100.0)
-                badge = f"{fmt} {t('preview_badge_comp', self.lang)} (-%{savings:.0f})"
+                badge = f"{fmt} {t('preview_badge_comp', self.lang)} (-{t('pct', self.lang).format(f'{savings:.0f}')})"
             self.canvas.set_image(self._comp_pixmap or self._orig_pixmap, is_original=False, badge_text=badge)
 
     def _update_stats(self):
@@ -1105,7 +1105,7 @@ class PreviewDialog(ChromeDialog):
             txt = (
                 f"{vid_label}: {orig_vid_str} ({orig_dim_str})  |  "
                 f"{orig_frame_label}: {ref_frame_str}  →  {t('preview_lbl_comp_frame', self.lang)}: {comp_str} ({comp_dim_str})  |  "
-                f"{t('preview_lbl_frame_savings', self.lang)}: %{savings:.1f}"
+                f"{t('preview_lbl_frame_savings', self.lang)}: {t('pct', self.lang).format(f'{savings:.1f}')}"
             )
         else:
             fmt = self.format_combo.currentText()
@@ -1117,7 +1117,7 @@ class PreviewDialog(ChromeDialog):
             txt = (
                 f"{orig_label}: {orig_str} ({orig_dim_str})  →  "
                 f"{fmt}: {comp_str} ({comp_dim_str})  |  "
-                f"{t('preview_lbl_savings', self.lang)}: %{savings:.1f}"
+                f"{t('preview_lbl_savings', self.lang)}: {t('pct', self.lang).format(f'{savings:.1f}')}"
             )
 
         self.stats_label.setText(txt)

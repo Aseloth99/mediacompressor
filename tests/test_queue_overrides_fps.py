@@ -313,6 +313,7 @@ class WindowWiringTest(unittest.TestCase):
         w = self._window()
         MB = 1024 * 1024
         files = [(f"i{i}.jpg", 2 * MB) for i in range(9)] + [("big.mp4", 2000 * MB)]
+        w.queue.set_files(["big.mp4"])
         w._job_t0 = 1000.0
         w._eta = JobEta(files, 1000.0)
         with mock.patch.object(mw.time, "time", return_value=1001.0):
@@ -320,11 +321,11 @@ class WindowWiringTest(unittest.TestCase):
         with mock.patch.object(mw.time, "time", return_value=1002.0):
             w._on_file_progress("big.mp4", 0.005)
         self.assertNotIn("kalan", w.stats.text(), "%1'den önce kalan süre yazılmaz")
-        self.assertNotIn("kalan", w.video_label.text())
+        self.assertEqual(w.queue.status_display("big.mp4"), "%0", "satırda süre tahmini henüz yok")
         with mock.patch.object(mw.time, "time", return_value=1061.0):
             w._on_file_progress("big.mp4", 0.5)
         self.assertIn("kalan", w.stats.text())
-        self.assertIn("kalan", w.video_label.text())
+        self.assertRegex(w.queue.status_display("big.mp4"), r"^%50 · ~\d+ (sn|dk)")
         self.assertGreater(w.overall.value() / mw.OVERALL_STEPS, 0.4, "bir dosya bitmeden de ilerler")
 
 

@@ -136,18 +136,6 @@ def swatch_icon(hex_color: str) -> QIcon:
     return _finish(pix, p)
 
 
-def contrast_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
-    """Yarısı dolu daire: "Tema" düğmesinin simgesi."""
-    pix, p = _canvas()
-    p.setPen(_pen(color, 1.5))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawEllipse(QRectF(3.0, 3.0, 14.0, 14.0))
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QBrush(QColor(color)))
-    p.drawPie(QRectF(3.0, 3.0, 14.0, 14.0), 90 * 16, 180 * 16)
-    return _finish(pix, p)
-
-
 def info_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
     pix, p = _canvas()
     p.setPen(_pen(color, 1.5))
@@ -224,15 +212,6 @@ def film_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
     return _finish(pix, p)
 
 
-def clock_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
-    pix, p = _canvas()
-    p.setPen(_pen(color, 1.5))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawEllipse(QRectF(2.5, 2.5, 15.0, 15.0))
-    p.drawPolyline([QPointF(10.0, 5.8), QPointF(10.0, 10.0), QPointF(13.0, 11.8)])
-    return _finish(pix, p)
-
-
 def scissors_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
     pix, p = _canvas()
     p.setPen(_pen(color, 1.5))
@@ -241,6 +220,75 @@ def scissors_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
     p.drawEllipse(QPointF(14.8, 14.6), 2.4, 2.4)
     p.drawLine(QPointF(6.6, 12.6), QPointF(14.6, 3.6))
     p.drawLine(QPointF(13.4, 12.6), QPointF(5.4, 3.6))
+    return _finish(pix, p)
+
+
+def trash_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
+    """Çöp kutusu: kuyruk menüsünde "Kuyruktan Çıkar"."""
+    pix, p = _canvas()
+    p.setPen(_pen(color, 1.4))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawLine(QPointF(3.5, 5.5), QPointF(16.5, 5.5))
+    p.drawPolyline([QPointF(8.0, 5.5), QPointF(8.0, 3.2), QPointF(12.0, 3.2), QPointF(12.0, 5.5)])
+    p.drawPolyline([QPointF(5.2, 5.5), QPointF(6.2, 17.0), QPointF(13.8, 17.0), QPointF(14.8, 5.5)])
+    p.drawLine(QPointF(8.6, 8.6), QPointF(8.9, 14.2))
+    p.drawLine(QPointF(11.4, 8.6), QPointF(11.1, 14.2))
+    return _finish(pix, p)
+
+
+def sliders_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
+    """Üç kaydırıcı: kuyruk menüsünde "İstisna Uygula" (dosyaya özel ayar)."""
+    pix, p = _canvas()
+    p.setPen(_pen(color, 1.4))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    for y, knob in ((5.0, 12.5), (10.0, 6.5), (15.0, 10.5)):
+        p.drawLine(QPointF(3.0, y), QPointF(knob - 2.0, y))
+        p.drawLine(QPointF(knob + 2.0, y), QPointF(17.0, y))
+        p.drawEllipse(QPointF(knob, y), 2.0, 2.0)
+    return _finish(pix, p)
+
+
+def sidebar_icon(color: str = DEFAULT_ICON_COLOR, collapsed: bool = False) -> QIcon:
+    """Sol bölmeli pencere + ok: kuyruk başlığında "ayar panelini gizle/göster" (gizliyken ok sağa bakar)."""
+    pix, p = _canvas()
+    p.setPen(_pen(color, 1.4))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(QRectF(2.5, 3.5, 15.0, 13.0), 2.5, 2.5)
+    p.drawLine(QPointF(7.5, 3.5), QPointF(7.5, 16.5))
+    if collapsed:
+        p.drawPolyline([QPointF(11.0, 7.5), QPointF(13.5, 10.0), QPointF(11.0, 12.5)])
+    else:
+        p.drawPolyline([QPointF(13.5, 7.5), QPointF(11.0, 10.0), QPointF(13.5, 12.5)])
+    return _finish(pix, p)
+
+
+def folder_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
+    """Klasör: "Klasörde Göster"."""
+    pix, p = _canvas()
+    p.setPen(_pen(color, 1.4))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    body = QPainterPath()
+    body.moveTo(3.5, 16.0)
+    body.lineTo(3.5, 4.5)
+    body.lineTo(8.0, 4.5)
+    body.lineTo(9.8, 6.5)
+    body.lineTo(16.5, 6.5)
+    body.lineTo(16.5, 16.0)
+    body.closeSubpath()
+    p.drawPath(body)
+    p.drawLine(QPointF(3.5, 9.0), QPointF(16.5, 9.0))
+    return _finish(pix, p)
+
+
+def open_external_icon(color: str = DEFAULT_ICON_COLOR) -> QIcon:
+    """Kutudan dışarı çıkan ok: "Dosyayı Aç" (varsayılan uygulamada)."""
+    pix, p = _canvas()
+    p.setPen(_pen(color, 1.4))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawPolyline([QPointF(9.0, 4.0), QPointF(4.0, 4.0), QPointF(4.0, 16.0), QPointF(16.0, 16.0), QPointF(16.0, 11.0)])
+    p.setPen(_pen(color, 1.5))
+    p.drawLine(QPointF(9.5, 10.5), QPointF(16.0, 4.0))
+    p.drawPolyline([QPointF(11.5, 4.0), QPointF(16.0, 4.0), QPointF(16.0, 8.5)])
     return _finish(pix, p)
 
 

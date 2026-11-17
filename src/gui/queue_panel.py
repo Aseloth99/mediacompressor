@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 
 from ..core.image_compressor import IMAGE_EXTS
 from ..core.video_compressor import VIDEO_EXTS
-from ..utils.helpers import format_bytes
+from ..utils.helpers import format_bytes, format_duration
 from ..utils.locales import t
 from ..utils.timecode import clock
 from . import icons
@@ -61,6 +61,8 @@ VIDEO_ONLY_KEYS = ("video_res", "fps", "remove_audio", "trim")
 ROLE_PATH = Qt.ItemDataRole.UserRole
 ROLE_STATUS = Qt.ItemDataRole.UserRole + 1
 ROLE_SIZE = Qt.ItemDataRole.UserRole + 2
+ROLE_PROGRESS = Qt.ItemDataRole.UserRole + 3  # sürmekte olan dosyanın oranı (0–1); None = oran bilinmiyor
+ROLE_ETA = Qt.ItemDataRole.UserRole + 4  # o dosyanın kalan süresi ("58 sn"); "" = henüz tahmin yok
 
 ROW_H = 40
 HEADER_H = 34
@@ -75,6 +77,23 @@ SIZE_LOOKUP_LIMIT = 3000
 def _status_text(status: str, lang: str) -> str:
     key = STATUS_KEYS.get(status)
     return t(key, lang) if key else status
+
+
+def progress_text(ratio: float, eta: str, lang: str) -> str:
+    """Satır içi ilerleme: "%41 · ~58 sn" (en: "41% · ~58 s"); süre tahmini yoksa yalnızca yüzde."""
+    pct = t("pct", lang).format(int(ratio * 100))
+    return f"{pct} · ~{eta}" if eta else pct
+
+
+def row_status_text(status: str, ratio, eta: str, lang: str, fm: QFontMetrics | None = None, room: int = 0) -> str:
+    """Durum sütununda yazan metin. Sürmekte olan dosyanın oranı biliniyorsa durum adı yerine ilerleme;
+    süreli metin sütuna sığmazsa yalnızca yüzde."""
+    if status != "run" or ratio is None:
+        return _status_text(status, lang)
+    text = progress_text(ratio, eta, lang)
+    if fm is not None and room and fm.horizontalAdvance(text) > room:
+        text = progress_text(ratio, "", lang)
+    return text
 
 
 def is_video(path: str) -> bool:
@@ -182,6 +201,7 @@ class _Layout:
         bold.setBold(True)
         fm, fmb = QFontMetrics(font), QFontMetrics(bold)
         statuses = [_status_text(s, lang) for s in STATUS_KEYS] + [t("queue_col_status", lang)]
+        statuses.append(progress_text(1.0, format_duration(59, lang), lang))  # "%100 · ~59 sn" sığsın
         self.status_w = max(fmb.horizontalAdvance(s) for s in statuses) + 20
         self.size_w = max(fm.horizontalAdvance("999.9 MB → 999.9 MB"), fmb.horizontalAdvance(t("queue_col_size", lang))) + 16
         self.min_col = PAD + ICON + 9 + NAME_MIN + 10 + self.status_w + self.size_w + PAD  # parts() ile aynı boşluklar
@@ -267,8 +287,22 @@ class _Delegate(QStyledItemDelegate):
         st_font.setBold(status in ("run", "ok", "fail"))
         painter.setFont(st_font)
         painter.setPen(panel.status_color(status))
+        st_fm = QFontMetrics(st_font)
+        ratio = index.data(ROLE_PROGRESS) if status == "run" else None
+        st_text = row_status_text(status, ratio, index.data(ROLE_ETA) or "", panel.lang, st_fm, status_r.width() - 6)
         painter.drawText(status_r, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                         QFontMetrics(st_font).elidedText(_status_text(status, panel.lang), Qt.TextElideMode.ElideRight, status_r.width() - 6))
+                         st_fm.elidedText(st_text, Qt.TextElideMode.ElideRight, status_r.width() - 6))
+        if ratio is not None:
+            # Satırın altında ince ilerleme çizgisi (alttaki büyük çubuğun yerine; her dosya kendi satırında)
+            track = QRect(icon_r.x(), rect.bottom() - 4, size_r.right() - icon_r.x(), 3)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(pal["track"])
+            painter.drawRoundedRect(track, 1.5, 1.5)
+            if ratio > 0:
+                fill = QRect(track)
+                fill.setWidth(max(3, int(track.width() * ratio)))
+                painter.setBrush(panel.status_color("run"))
+                painter.drawRoundedRect(fill, 1.5, 1.5)
         painter.setFont(font)
         painter.setPen(pal["text"])
         painter.drawText(size_r, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
@@ -370,6 +404,7 @@ class QueuePanel(QListWidget):
             "line": QColor("#1a1a1a"), "header_bg": QColor("#252525"),
             "select": QColor(0, 172, 193, 70), "hover": QColor(255, 255, 255, 14),
             "chip_bg": QColor(0, 172, 193, 50), "chip_text": QColor("#4DD0E1"),
+            "track": QColor(158, 158, 158, 60),
         }
 
     def set_status_palette(self, palette: dict) -> None:
@@ -385,9 +420,13 @@ class QueuePanel(QListWidget):
         chip_bg = QColor(accent)
         chip_bg.setAlpha(40 if light else 55)
         hover = QColor(0, 0, 0, 12) if light else QColor(255, 255, 255, 14)
+        muted = QColor(str(palette.get("text_muted", "#9e9e9e")))
+        track = QColor(muted)
+        track.setAlpha(55 if light else 70)
         self.colors = {
             "text": QColor(str(palette.get("text", "#e8e8e8"))),
-            "muted": QColor(str(palette.get("text_muted", "#9e9e9e"))),
+            "muted": muted,
+            "track": track,
             "alt": QColor(str(palette.get("surface", "#252525"))),
             "line": QColor(str(palette.get("border", "#1a1a1a"))),
             "header_bg": QColor(str(palette.get("surface", "#252525"))),
@@ -561,17 +600,44 @@ class QueuePanel(QListWidget):
         if item is None:
             return
         item.setData(ROLE_STATUS, status)
+        # yeni başlayan ya da biten dosyada eski oran kalmasın (oranı set_progress verir)
+        item.setData(ROLE_PROGRESS, None)
+        item.setData(ROLE_ETA, "")
         if isinstance(extra, dict) and "in" in extra and "out" in extra:
             item.setData(ROLE_SIZE, f"{format_bytes(extra['in'])} → {format_bytes(extra['out'])}")
 
+    def set_progress(self, path: str, ratio: float | None, eta: str = "") -> None:
+        """Sürmekte olan dosyanın satırındaki ilerleme (yüzde, kalan süre ve satır altı çizgisi)."""
+        item = self._items.get(path)
+        if item is None:
+            return
+        item.setData(ROLE_PROGRESS, None if ratio is None else max(0.0, min(1.0, float(ratio))))
+        item.setData(ROLE_ETA, eta or "")
+
+    def progress_of(self, path: str) -> float | None:
+        item = self._items.get(path)
+        return item.data(ROLE_PROGRESS) if item is not None else None
+
+    def status_display(self, path: str) -> str:
+        """Satırın Durum sütununda okunan metin (sığdırma kısaltması hariç)."""
+        item = self._items.get(path)
+        if item is None:
+            return ""
+        return row_status_text(item.data(ROLE_STATUS) or "wait", item.data(ROLE_PROGRESS),
+                               item.data(ROLE_ETA) or "", self.lang)
+
     def apply_order(self, paths: list[str]):
-        snap = {p: (self.status_of(p), self.size_text_of(p)) for p in self.paths()}
+        snap = {p: (self.status_of(p), self.size_text_of(p), self.progress_of(p),
+                    self._items[p].data(ROLE_ETA) or "") for p in self.paths()}
         selected = set(self.selected_paths())
         self.clear()
         self._items.clear()
         for path in paths:
-            status, size = snap.get(path, ("wait", None))
+            status, size, ratio, eta = snap.get(path, ("wait", None, None, ""))
             item = self._new_item(path, status or "wait", size)
+            if ratio is not None:
+                item.setData(ROLE_PROGRESS, ratio)
+                item.setData(ROLE_ETA, eta)
             self.addItem(item)
             self._items[path] = item
             if path in selected:
@@ -723,9 +789,9 @@ class QueuePanel(QListWidget):
             return paths
         return [p for p in paths if self.status_of(p) == "wait"]
 
-    def _override_menu(self, menu: QMenu, paths: list[str]) -> None:
+    def _override_menu(self, menu: QMenu, paths: list[str], icon: QIcon) -> None:
         editable = self._editable(paths)
-        sub = menu.addMenu(t("ovr_menu", self.lang))
+        sub = menu.addMenu(icon, t("ovr_menu", self.lang))
         sub.setEnabled(bool(editable))
         videos = [p for p in editable if is_video(p)]
         images = [p for p in editable if not is_video(p)]
@@ -792,18 +858,19 @@ class QueuePanel(QListWidget):
         """Sağ tık menüsü (seçili dosyalar için)."""
         menu = QMenu(self)
         n = len(paths)
+        # Her satırın simgesi var (yalnızca ikisinde olunca metinler iki farklı hizada başlıyordu).
+        icon_color = getattr(self, "_menu_icon_color", icons.DEFAULT_ICON_COLOR)  # menü simgeleri vurguya uyar
         if not self._locked:
             rem_text = (
                 t("queue_remove", self.lang) if n == 1
                 else t("queue_remove_n", self.lang).format(n)
             )
-            remove = QAction(rem_text, menu)
+            remove = QAction(icons.trash_icon(icon_color), rem_text, menu)
             remove.triggered.connect(lambda: self.remove_requested.emit(paths))
             menu.addAction(remove)
             menu.addSeparator()
 
         # Önizleme hem resim hem video için (pencere videodan kare seçerek karşılaştırır).
-        icon_color = getattr(self, "_menu_icon_color", icons.DEFAULT_ICON_COLOR)  # menü simgeleri vurguya uyar
         preview_act = QAction(icons.eye_icon(icon_color), t("preview_btn", self.lang), menu)
         preview_act.triggered.connect(lambda: self.preview_requested.emit(paths[0]))
         menu.addAction(preview_act)
@@ -813,13 +880,13 @@ class QueuePanel(QListWidget):
             trim_act.setEnabled(bool(self._editable(paths)))
             trim_act.triggered.connect(lambda: self.trim_requested.emit(paths[0]))
             menu.addAction(trim_act)
-        self._override_menu(menu, paths)
+        self._override_menu(menu, paths, icons.sliders_icon(icon_color))
         menu.addSeparator()
 
-        reveal = QAction(t("reveal_in_folder", self.lang), menu)
+        reveal = QAction(icons.folder_icon(icon_color), t("reveal_in_folder", self.lang), menu)
         reveal.triggered.connect(lambda: self.reveal_requested.emit(paths[0]))
         menu.addAction(reveal)
-        open_act = QAction(t("open_file", self.lang), menu)
+        open_act = QAction(icons.open_external_icon(icon_color), t("open_file", self.lang), menu)
         open_act.triggered.connect(lambda: self.open_requested.emit(paths[0]))
         menu.addAction(open_act)
         return menu

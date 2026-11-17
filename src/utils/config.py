@@ -63,6 +63,7 @@ DEFAULTS: dict[str, Any] = {
     "last_output": "",
     "recent_folders": [],
     "open_output_when_done": False,
+    "left_panel_collapsed": False,  # kuyruk başlığındaki düğmeyle gizlenen ayar paneli
 }
 
 

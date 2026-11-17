@@ -21,6 +21,7 @@ from .video_compressor import VIDEO_EXTS, VideoCompressor, video_output_path
 from .workers import DaemonWorker
 from ..utils.config import FILE_TYPE_ALL, FILE_TYPE_IMAGES, FILE_TYPE_VIDEOS, normalize_file_type
 from ..utils.helpers import format_bytes, format_duration
+from ..utils.locales import t
 from ..utils.logger import log_error, log_info
 
 SKIP_DIR_NAMES = {"compressed", "sıkıştırılmış", OUTPUT_FOLDER_NAME.casefold()}
@@ -183,6 +184,29 @@ class JobWorker(DaemonWorker):
     def stop(self):
         self.cancel_event.set()
 
+    def _t(self, key: str, **values) -> str:
+        """İş kaydı satırı arayüzün dilinde (``settings["lang"]``; yoksa etkin dil)."""
+        text = t(key, self.settings.get("lang"))
+        return text.format(**values) if values else text
+
+    def _pct(self, value: float) -> str:
+        """Yüzde dilin biçimiyle: tr ``%41.2``, en ``41.2%``."""
+        return t("pct", self.settings.get("lang")).format(f"{value:.1f}")
+
+    def _image_error(self, name: str, result) -> str:
+        """``ImageCompressor`` hata iletisinin ("Hata: ad — ayrıntı") ayrıntı kısmı; satırı dil kendisi kurar."""
+        detail = str(result)
+        prefix = f"Hata: {name} — "
+        return detail[len(prefix):] if detail.startswith(prefix) else detail
+
+    def _video_method(self, msg) -> str:
+        """Kodek/donanım etiketi; "(Orijinal korundu)" eki dile çevrilir."""
+        text = str(msg)
+        suffix = " (Orijinal korundu)"
+        if text.endswith(suffix):
+            return f"{text[:-len(suffix)]} ({self._t('log_original_kept')})"
+        return text
+
     def _video_dst(self, natural: str, codec: str) -> str:
         """Video çıktı yolu (bkz. ``video_output_path``). Yeni ad başka bir kaynağın çıktısıysa (aynı klasörde
         hem film.avi hem film.mp4) ``film (avi).mp4`` yazılır; biri diğerini ezmez ya da "zaten var" diye atlanmaz."""
@@ -205,7 +229,7 @@ class JobWorker(DaemonWorker):
             self._run_inner()
         except Exception as exc:
             log_error("İş kuyruğu beklenmeyen hata", exc)
-            self.log.emit(f"Beklenmeyen hata: {exc}")
+            self.log.emit(self._t("log_unexpected_error", error=exc))
             self.finished_job.emit({
                 "cancelled": False,
                 "ok": 0, "skip": 0, "fail": 0,
@@ -226,7 +250,7 @@ class JobWorker(DaemonWorker):
         self._natural_outputs = {os.path.normcase(relative_output(f, common, output_dir)) for f in files}
         total = len(files)
         if total == 0:
-            self.log.emit("Seçilen türde işlenecek dosya bulunamadı.")
+            self.log.emit(self._t("log_no_files"))
             self.finished_job.emit({
                 "cancelled": False, "ok": 0, "skip": 0, "fail": 0,
                 "bytes_in": 0, "bytes_out": 0,
@@ -236,10 +260,10 @@ class JobWorker(DaemonWorker):
 
         stale = sweep_partial_files(output_dir)
         if stale:
-            self.log.emit(f"{stale} yarım kalmış geçici dosya temizlendi.")
+            self.log.emit(self._t("log_stale_cleaned", count=stale))
             log_info(f"Eski geçici dosyalar silindi: {stale}")
 
-        self.log.emit(f"{total} dosya bulundu. Sıkıştırma başlıyor…")
+        self.log.emit(self._t("log_job_start", total=total))
         self.progress.emit(0, total)
         job_t0 = time.time()
 
@@ -309,7 +333,7 @@ class JobWorker(DaemonWorker):
                         self.file_started.emit(src)
                         stats.skip += 1
                         stats.done += 1
-                        self.log.emit(f"Atlandı (zaten mevcut): {name}")
+                        self.log.emit(self._t("log_skipped_exists", name=name))
                         self.file_done.emit(src, "skip", None)
                         self.progress.emit(stats.done, stats.total)
                         continue
@@ -323,7 +347,7 @@ class JobWorker(DaemonWorker):
                     except OSError as exc:
                         stats.fail += 1
                         stats.done += 1
-                        self.log.emit(f"Hata ({name}): {exc}")
+                        self.log.emit(self._t("log_file_error", name=name, error=exc))
                         self.file_done.emit(src, "fail", str(exc))
                         self.progress.emit(stats.done, stats.total)
                         continue
@@ -360,22 +384,23 @@ class JobWorker(DaemonWorker):
                 stats.bytes_in += first_size
                 stats.bytes_out += last_size
                 pct = ((first_size - last_size) / first_size) * 100 if first_size else 0
-                self.log.emit(
-                    f"Resim [{stats.done}/{stats.total}]: {name} "
-                    f"({format_bytes(first_size)} → {format_bytes(last_size)} | -%{pct:.1f})"
-                )
+                self.log.emit(self._t(
+                    "log_image_done", done=stats.done, total=stats.total, name=name,
+                    size_in=format_bytes(first_size), size_out=format_bytes(last_size), pct=self._pct(pct),
+                ))
                 self.file_done.emit(src, "ok", {"in": first_size, "out": last_size})
             elif result == CANCELLED:
                 self.file_done.emit(src, "cancel", None)
             else:
                 stats.fail += 1
-                self.log.emit(str(result))
-                self.file_done.emit(src, "fail", str(result))
+                detail = self._image_error(name, result)
+                self.log.emit(self._t("log_file_error", name=name, error=detail))
+                self.file_done.emit(src, "fail", detail)
         except CancelledError:
             self.file_done.emit(src, "cancel", None)
         except Exception as exc:
             stats.fail += 1
-            self.log.emit(f"Hata ({name}): {exc}")
+            self.log.emit(self._t("log_file_error", name=name, error=exc))
             self.file_done.emit(src, "fail", str(exc))
         self.progress.emit(stats.done, stats.total)
 
@@ -384,7 +409,7 @@ class JobWorker(DaemonWorker):
         s = self.settings
         for src in files:
             if self.cancel_event.is_set():
-                self.log.emit("İşlem durduruldu.")
+                self.log.emit(self._t("log_stopped"))
                 break
             stats.done += 1
             name = os.path.basename(src)
@@ -393,16 +418,16 @@ class JobWorker(DaemonWorker):
             if ext in VIDEO_EXTS:
                 dst = self._video_dst(natural, s["codec"])
                 if dst != natural:
-                    self.log.emit(
-                        f"{name}: {ext} bu kodeği ({s['codec'].upper()}) düzgün taşımıyor, "
-                        f"{os.path.basename(dst)} olarak kaydedilecek"
-                    )
+                    self.log.emit(self._t(
+                        "log_container_switch", name=name, ext=ext, codec=s["codec"].upper(),
+                        target=os.path.basename(dst),
+                    ))
             self.file_started.emit(src)
 
             try:
                 if output_exists(dst, ext) or (natural != dst and output_exists(natural, ext)):
                     stats.skip += 1
-                    self.log.emit(f"Atlandı (zaten mevcut): {name}")
+                    self.log.emit(self._t("log_skipped_exists", name=name))
                     self.file_done.emit(src, "skip", None)
                     self.progress.emit(stats.done, stats.total)
                     continue
@@ -413,11 +438,10 @@ class JobWorker(DaemonWorker):
                 if ext in VIDEO_EXTS:
                     if not video:
                         stats.fail += 1
-                        msg = "FFmpeg yok, video atlandı"
-                        self.log.emit(f"{msg}: {name}")
-                        self.file_done.emit(src, "fail", msg)
+                        self.log.emit(self._t("log_no_ffmpeg_file", name=name))
+                        self.file_done.emit(src, "fail", self._t("log_no_ffmpeg"))
                     else:
-                        self.log.emit(f"Video [{stats.done}/{stats.total}]: {name} …")
+                        self.log.emit(self._t("log_video_start", done=stats.done, total=stats.total, name=name))
                         self.file_progress.emit(src, 0.0)
                         started = time.time()
 
@@ -447,19 +471,20 @@ class JobWorker(DaemonWorker):
                             stats.bytes_in += first_size
                             stats.bytes_out += last_size
                             pct = ((first_size - last_size) / first_size) * 100 if first_size else 0
-                            self.log.emit(
-                                f"Tamamlandı [{msg}]: {name} "
-                                f"({format_bytes(first_size)} → {format_bytes(last_size)} | -%{pct:.1f} | {elapsed})"
-                            )
+                            self.log.emit(self._t(
+                                "log_video_done", method=self._video_method(msg), name=name,
+                                size_in=format_bytes(first_size), size_out=format_bytes(last_size),
+                                pct=self._pct(pct), elapsed=elapsed,
+                            ))
                             self.file_done.emit(src, "ok", {"in": first_size, "out": last_size, "msg": msg})
                         elif msg == CANCELLED:
-                            self.log.emit("İşlem durduruldu.")
+                            self.log.emit(self._t("log_stopped"))
                             self.file_done.emit(src, "cancel", None)
                             break
                         else:
                             stats.fail += 1
                             short = str(msg)[:160]
-                            self.log.emit(f"Video hatası ({name}): {short}")
+                            self.log.emit(self._t("log_video_error", name=name, error=short))
                             self.file_done.emit(src, "fail", short)
                         self.file_progress.emit(src, 1.0)
                 else:
@@ -468,7 +493,7 @@ class JobWorker(DaemonWorker):
             except Exception as exc:
                 stats.fail += 1
                 log_error(f"Dosya işlenemedi: {src}", exc)
-                self.log.emit(f"Hata ({name}): {exc}")
+                self.log.emit(self._t("log_file_error", name=name, error=exc))
                 self.file_done.emit(src, "fail", str(exc))
 
             self.progress.emit(stats.done, stats.total)
