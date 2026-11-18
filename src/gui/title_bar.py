@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QFont, QFontMetricsF, QIcon, QPainter, QPainterPath, QPalette
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QWidget
 
 from ..core.app_info import APP_NAME, VERSION
@@ -44,6 +44,49 @@ def _chrome_font(size: int) -> QFont:
     return font
 
 
+class GlyphButton(QPushButton):
+    """Metinsiz pencere düğmesi: arka planı (hover/basılı) temanın QSS'i çizer, glifi `icons.paint_window_glyph`
+    (32'lik ızgara, vektör) doğrudan üstüne çizer; böylece her ölçekte keskin kalır."""
+
+    def __init__(self, glyph: str, parent: QWidget | None = None):
+        super().__init__("", parent)
+        self._glyph = glyph
+        self._ink: str | None = None
+
+    @property
+    def glyph(self) -> str:
+        return self._glyph
+
+    def set_glyph(self, glyph: str) -> None:
+        if glyph != self._glyph:
+            self._glyph = glyph
+            self.update()
+
+    def ink(self) -> QColor:
+        if self._ink:
+            return QColor(self._ink)
+        return self.palette().color(QPalette.ColorRole.ButtonText)
+
+    def set_ink(self, color: str | None) -> None:
+        self._ink = color or None
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        icons.paint_centered_window_glyph(painter, QRectF(self.rect()), self._glyph, self.ink(),
+                                          center_y=self._text_axis_y())
+        painter.end()
+
+    def _text_axis_y(self) -> float:
+        """Yandaki "−" metin glifinin dikey ortası (aynı yazı tipi ve ortalama): glif onunla aynı hizada durur."""
+        metrics = QFontMetricsF(self.font())
+        top = (self.height() - metrics.height()) / 2.0
+        ink = QPainterPath()
+        ink.addText(0.0, 0.0, self.font(), "−")  # tightBoundingRect bazı platformlarda satır kutusunu verir
+        return top + metrics.ascent() + ink.boundingRect().center().y()
+
+
 class TitleBar(QFrame):
     theme_selected = pyqtSignal(str)
     accent_selected = pyqtSignal(str)
@@ -53,6 +96,7 @@ class TitleBar(QFrame):
     minimize_clicked = pyqtSignal()
     maximize_clicked = pyqtSignal()
     close_clicked = pyqtSignal()
+    update_clicked = pyqtSignal()       # başlıktaki ↑: bekleyen güncellemenin penceresini açar (kurmaz)
     add_files_clicked = pyqtSignal()    # Dosya > Dosya Ekle…
     add_folder_clicked = pyqtSignal()   # Dosya > Klasör Ekle…
     exit_clicked = pyqtSignal()         # Dosya > Çıkış (gerçekten çıkar; X tepsiye gizler)
@@ -71,6 +115,9 @@ class TitleBar(QFrame):
         self._icon_color = icons.DEFAULT_ICON_COLOR
         self._danger_color = "#ef4444"
         self._accent_key = ""
+        self._ink_color: str | None = None   # pencere düğmesi glifleri (− ve × ile aynı metin rengi)
+        self._maximized = False
+        self._update_version = ""
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 6, 0)
@@ -198,13 +245,18 @@ class TitleBar(QFrame):
         right_l.setSpacing(2)
         right_l.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
 
-        # Bekleyen güncelleme başlıkta değil, Ayarlar > Güncellemeler'de ve tepsi menüsünde görünür (FlexiKey gibi)
+        # Bekleyen güncelleme: küçültmenin solunda küçük ↑ (yalnızca simge; Ayarlar'daki düğme ve tepsi satırı da durur)
+        self.update_btn = GlyphButton("update")
+        self.update_btn.setObjectName("title_update_btn")
+        self.update_btn.setVisible(False)
         self.min_btn = QPushButton("−")
-        self.max_btn = QPushButton("□")
+        self.max_btn = GlyphButton("maximize")
+        self.max_btn.setObjectName("title_max_btn")
         self.close_btn = QPushButton("×")
         self.retranslate("tr")
 
         for btn, cls, signal, pt in (
+            (self.update_btn, "title-button", self.update_clicked, 13),
             (self.min_btn, "title-button", self.minimize_clicked, 13),
             (self.max_btn, "title-button", self.maximize_clicked, 13),
             (self.close_btn, "title-button-close", self.close_clicked, 16),
@@ -222,6 +274,16 @@ class TitleBar(QFrame):
         layout.addWidget(self.right_box)
         self.apply_palette(None)
         self._balance_title_bar()
+        # Glif her pencere durumu değişiminde güncellenir: düğme, çift tık, Win+Yukarı/Aşağı, Aero Snap, görev çubuğu,
+        # programdan showMaximized()... (yalnızca kendi büyüt/geri al işlevimizden değil)
+        if isinstance(parent, QWidget):
+            parent.installEventFilter(self)
+            self.set_maximized(parent.isMaximized())
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._window and event.type() == QEvent.Type.WindowStateChange:
+            self.set_maximized(self._window.isMaximized())
+        return super().eventFilter(obj, event)
 
     def _menu_button(self, text: str) -> QPushButton:
         btn = QPushButton(text)
@@ -249,6 +311,10 @@ class TitleBar(QFrame):
         spec = ACCENTS.get(self._accent_key)
         if spec:
             self.color_btn.setIcon(_color_swatch_icon(spec["accent"]))
+        if palette and palette.get("text"):
+            self._ink_color = str(palette["text"])
+        self.max_btn.set_ink(self._ink_color)       # − ve × ile aynı metin rengi
+        self.update_btn.set_ink(color)              # ↑ vurgu renginde: yeni bir şey var
 
     def _balance_title_bar(self):
         if hasattr(self, "left_box") and hasattr(self, "right_box"):
@@ -313,13 +379,37 @@ class TitleBar(QFrame):
                 act.setText(label)
                 act.setIcon(create_language_icon(code))
         self.min_btn.setToolTip(t("minimize", lang))
-        self.max_btn.setToolTip(t("maximize", lang))
         self.close_btn.setToolTip(t("close_tooltip", lang))
+        self._refresh_max_button()
+        self._refresh_update_button()
 
     def set_maximized(self, maximized: bool):
-        self.max_btn.setText("❐" if maximized else "□")
-        lang = getattr(self, "_lang", "tr")
-        self.max_btn.setToolTip(t("restore", lang) if maximized else t("maximize", lang))
+        self._maximized = bool(maximized)
+        self._refresh_max_button()
+
+    def _refresh_max_button(self) -> None:
+        lang = self._lang
+        text = t("restore", lang) if self._maximized else t("maximize", lang)
+        self.max_btn.set_glyph("restore" if self._maximized else "maximize")
+        self.max_btn.setToolTip(text)
+        self.max_btn.setAccessibleName(text)
+
+    # ------------------------------------------------------------------ bekleyen güncelleme (↑)
+    def set_update_available(self, version: str) -> None:
+        """Bekleyen güncelleme varsa ↑ görünür (Ayarlar'daki "Güncelle · vX" düğmesi ve tepsi satırıyla aynı durum)."""
+        self._update_version = str(version or "")
+        visible = bool(self._update_version)
+        if self.update_btn.isHidden() == visible:
+            self.update_btn.setVisible(visible)
+            self._balance_title_bar()
+        self._refresh_update_button()
+
+    def _refresh_update_button(self) -> None:
+        lang = self._lang
+        self.update_btn.setAccessibleName(t("update_btn_name", lang))
+        self.update_btn.setToolTip(
+            t("update_pill_tip", lang).format(version=self._update_version) if self._update_version else ""
+        )
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

@@ -50,6 +50,8 @@ class FakeWindow:
         # açık Ayarlar penceresi: bekleyen sürüm ona canlı iletilir
         settings_dialog = types.SimpleNamespace(show_pending_update=lambda v: self.calls.append(("settings", v)))
         self.findChildren = lambda cls: [settings_dialog]
+        # başlıktaki küçük ↑ da aynı durumu izler
+        self.title_bar = types.SimpleNamespace(set_update_available=lambda v: self.calls.append(("title", v)))
         self.tray = types.SimpleNamespace(
             set_update_available=lambda available, version="": self.calls.append(("tray", available, version)),
             notify=lambda *a: self.calls.append(("balloon", a[1])),
@@ -95,6 +97,7 @@ class OnUpdateAvailableTest(unittest.TestCase):
             MW._on_update_available(w, *PAYLOAD)
         self.assertIn(("settings", "1.2.3"), w.calls)
         self.assertIn(("tray", True, "1.2.3"), w.calls)
+        self.assertIn(("title", "1.2.3"), w.calls)
         self.assertIn(("schedule",), w.calls)
         self.assertFalse([c for c in w.calls if c[0] == "mandatory-silent"], "isteğe bağlı güncelleme kendiliğinden inmez")
         self.assertEqual(w._pending_update[0], "1.2.3")
@@ -275,23 +278,27 @@ class UpdateFailureTest(unittest.TestCase):
         self.assertEqual(w.update_dialog.waiting, 1)
 
 
-class TitleBarHasNoPillTest(unittest.TestCase):
-    """Bekleyen güncelleme başlık çubuğunda değil Ayarlar'da gösterilir (FlexiKey ile aynı)."""
+class TitleBarUpdateIconTest(unittest.TestCase):
+    """Başlıkta metinli pill yok: bekleyen güncelleme yalnızca küçük ↑ simgesiyle gösterilir (pencere düğmesi boyunda);
+    "Güncelle · vX" metni Ayarlar'da ve tepsi satırında kalır."""
 
     @classmethod
     def setUpClass(cls):
         cls.app_ = QApplication.instance() or QApplication([])
 
-    def test_title_bar_has_no_update_pill(self):
+    def test_title_bar_has_only_an_icon_button_for_updates(self):
         from PyQt6.QtWidgets import QPushButton
 
         bar = TitleBar()
         self.addCleanup(bar.deleteLater)
-        for name in ("update_btn", "update_clicked", "set_update_available"):
-            self.assertFalse(hasattr(bar, name), name)
         self.assertEqual([b for b in bar.findChildren(QPushButton) if b.objectName() == "update_pill"], [])
+        bar.set_update_available("1.2.3")
         texts = [b.text() for b in bar.findChildren(QPushButton)]
         self.assertFalse([s for s in texts if "v1." in s or "Güncelle" in s or "Update" in s], texts)
+        self.assertEqual(bar.update_btn.text(), "")
+        self.assertEqual(bar.update_btn.glyph, "update")
+        self.assertEqual(bar.update_btn.size(), bar.min_btn.size())
+        self.assertEqual(bar.update_btn.property("class"), bar.min_btn.property("class"))
 
     def test_theme_has_no_dead_pill_rule(self):
         from src.utils import theme_manager as tm
@@ -317,7 +324,7 @@ class LocaleTest(unittest.TestCase):
         for lang in ("tr", "en"):
             for key in ("update_pill", "update_pill_tip", "update_new_version", "auto_update_install",
                         "update_auto_failed", "check_now", "tray_update_now", "update_size_line",
-                        "update_failed_inline", "update_retry", "update_installed_toast"):
+                        "update_failed_inline", "update_retry", "update_installed_toast", "update_btn_name"):
                 self.assertNotEqual(t(key, lang), key, (lang, key))
         self.assertEqual(t("check_now", "tr"), "Kontrol Et")
 
