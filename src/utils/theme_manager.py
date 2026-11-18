@@ -805,23 +805,6 @@ def _build(p: dict) -> str:
             border: 1px solid {p['danger']};
             border-radius: 8px;
         }}
-        QFrame#title_bar QPushButton#update_pill, QPushButton#update_pill {{
-            background-color: {p['accent2']};
-            color: #ffffff;
-            border: 1px solid {p['accent2']};
-            border-top-color: {p['accent_hi']};
-            border-left-color: {p['accent_hi']};
-            border-radius: 12px;
-            padding: 0px 14px;
-            margin: 0px 8px 0px 0px;
-            min-height: 24px;
-            max-height: 24px;
-            font-size: 8.5pt;
-            font-weight: 700;
-        }}
-        QFrame#title_bar QPushButton#update_pill:hover, QPushButton#update_pill:hover {{
-            background-color: {p['accent']};
-        }}
         QFrame#adv_card {{
             background-color: {p['sunken']};
             border: 1px solid {p['border']};

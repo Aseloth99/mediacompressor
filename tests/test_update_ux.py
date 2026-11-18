@@ -1,4 +1,4 @@
-"""Güncelleme deneyimi: pop-up yok; başlık çubuğunda "Güncelle · vX" düğmesi; kullanılmıyorken otomatik kurulum."""
+"""Güncelleme deneyimi: pop-up yok; "Güncelle · vX" düğmesi Ayarlar'da (başlık çubuğunda değil); kullanılmıyorken otomatik kurulum."""
 
 from __future__ import annotations
 
@@ -47,7 +47,9 @@ class FakeWindow:
         self._installing = False
         self._pending_install = None
         self.update_dialog = None
-        self.title_bar = types.SimpleNamespace(set_update_available=lambda v: self.calls.append(("pill", v)))
+        # açık Ayarlar penceresi: bekleyen sürüm ona canlı iletilir
+        settings_dialog = types.SimpleNamespace(show_pending_update=lambda v: self.calls.append(("settings", v)))
+        self.findChildren = lambda cls: [settings_dialog]
         self.tray = types.SimpleNamespace(
             set_update_available=lambda available, version="": self.calls.append(("tray", available, version)),
             notify=lambda *a: self.calls.append(("balloon", a[1])),
@@ -91,7 +93,7 @@ class OnUpdateAvailableTest(unittest.TestCase):
         w = FakeWindow()
         with mock.patch.object(mw, "UpdateDialog", side_effect=AssertionError("pop-up açılmamalı")):
             MW._on_update_available(w, *PAYLOAD)
-        self.assertIn(("pill", "1.2.3"), w.calls)
+        self.assertIn(("settings", "1.2.3"), w.calls)
         self.assertIn(("tray", True, "1.2.3"), w.calls)
         self.assertIn(("schedule",), w.calls)
         self.assertFalse([c for c in w.calls if c[0] == "mandatory-silent"], "isteğe bağlı güncelleme kendiliğinden inmez")
@@ -100,7 +102,7 @@ class OnUpdateAvailableTest(unittest.TestCase):
     def test_declined_version_still_shows_button(self):
         w = FakeWindow()
         MW._on_update_available(w, *PAYLOAD)
-        self.assertIn(("pill", "1.2.3"), w.calls)
+        self.assertIn(("settings", "1.2.3"), w.calls)
 
     def test_mandatory_update_starts_in_background_when_idle(self):
         w = FakeWindow()
@@ -273,29 +275,29 @@ class UpdateFailureTest(unittest.TestCase):
         self.assertEqual(w.update_dialog.waiting, 1)
 
 
-class TitleBarPillTest(unittest.TestCase):
+class TitleBarHasNoPillTest(unittest.TestCase):
+    """Bekleyen güncelleme başlık çubuğunda değil Ayarlar'da gösterilir (FlexiKey ile aynı)."""
+
     @classmethod
     def setUpClass(cls):
         cls.app_ = QApplication.instance() or QApplication([])
 
-    def test_pill_shows_version_follows_language_and_hides(self):
-        bar = TitleBar()
-        self.assertTrue(bar.update_btn.isHidden())
-        bar.set_update_available("1.2.3")
-        self.assertFalse(bar.update_btn.isHidden())
-        self.assertEqual(bar.update_btn.text(), "Güncelle · v1.2.3")
-        bar.retranslate("en")
-        self.assertEqual(bar.update_btn.text(), "Update · v1.2.3")
-        bar.set_update_available("")
-        self.assertTrue(bar.update_btn.isHidden())
+    def test_title_bar_has_no_update_pill(self):
+        from PyQt6.QtWidgets import QPushButton
 
-    def test_click_emits_signal(self):
         bar = TitleBar()
-        got = []
-        bar.update_clicked.connect(lambda: got.append(1))
-        bar.set_update_available("1.2.3")
-        bar.update_btn.click()
-        self.assertEqual(got, [1])
+        self.addCleanup(bar.deleteLater)
+        for name in ("update_btn", "update_clicked", "set_update_available"):
+            self.assertFalse(hasattr(bar, name), name)
+        self.assertEqual([b for b in bar.findChildren(QPushButton) if b.objectName() == "update_pill"], [])
+        texts = [b.text() for b in bar.findChildren(QPushButton)]
+        self.assertFalse([s for s in texts if "v1." in s or "Güncelle" in s or "Update" in s], texts)
+
+    def test_theme_has_no_dead_pill_rule(self):
+        from src.utils import theme_manager as tm
+
+        for base, dark in ((tm.DARK, True), (tm.LIGHT, False)):
+            self.assertNotIn("update_pill", tm._build(tm._with_accent(base, "cyan", dark)))
 
 
 class CheckerHasNoPopupsTest(unittest.TestCase):
