@@ -319,7 +319,6 @@ class MainWindow(QMainWindow):
         self.title_bar.add_files_clicked.connect(self._pick_files)
         self.title_bar.add_folder_clicked.connect(self._pick_folder)
         self.title_bar.exit_clicked.connect(self.force_quit)
-        self.title_bar.update_clicked.connect(self.show_pending_update)
         self.title_bar.minimize_clicked.connect(self.showMinimized)
         self.title_bar.maximize_clicked.connect(self._toggle_max)
         self.title_bar.close_clicked.connect(self.close)
@@ -1784,7 +1783,7 @@ class MainWindow(QMainWindow):
             # çıkışsız bırakmasın ("Şimdi Güncelle" yeniden indirmeden kurar, "Daha Sonra" erteler).
             self.update_dialog.show_ready()
         pending_mandatory = bool(self._pending_update and self._pending_update[3])
-        # İsteğe bağlı güncelleme için pop-up yok: başlık çubuğundaki düğme durur; zorunlu olan arka planda indirilip
+        # İsteğe bağlı güncelleme için pop-up yok: Ayarlar'daki düğme ve tepsi satırı durur; zorunlu olan arka planda indirilip
         # kurulur. `_pending_update` SİLİNMEZ: indirme başarısız olursa düğme/tepsi satırı yeniden denemek için çalışsın.
         if pending_mandatory and should_show_pending_update(bool(self._pending_update), bool(cancelled), pending_mandatory):
             self._begin_silent_update(self._pending_update, mandatory=True)
@@ -1817,9 +1816,10 @@ class MainWindow(QMainWindow):
         return str(pending[0]) if pending else ""
 
     def _sync_update_indicators(self) -> None:
-        """Başlık çubuğundaki düğme ve tepsi satırı bekleyen güncellemeyle aynı durumda olsun."""
+        """Açık Ayarlar penceresindeki "Güncelle · vX" düğmesi ve tepsi satırı bekleyen güncellemeyle aynı durumda olsun."""
         version = self.pending_update_version()
-        self.title_bar.set_update_available(version)
+        for dialog in self.findChildren(SettingsDialog):
+            dialog.show_pending_update(version)
         if self.tray:
             self.tray.set_update_available(bool(version), version)
 
@@ -1827,7 +1827,7 @@ class MainWindow(QMainWindow):
         return bool(self.worker and self.worker.isRunning())
 
     def _on_update_available(self, version, url, notes, mandatory, size, checksum):
-        """Sessiz denetim yeni sürüm buldu: pop-up AÇILMAZ. Sürüm başlık çubuğundaki "Güncelle" düğmesinde ve
+        """Sessiz denetim yeni sürüm buldu: pop-up AÇILMAZ. Sürüm Ayarlar'daki "Güncelle" düğmesinde ve
         tepside görünür; "otomatik kur" açıksa uygulama kullanılmıyorken kendiliğinden kurulur."""
         payload = (version, url, notes, mandatory, size, checksum)
         self._pending_update = payload
@@ -1925,7 +1925,7 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ güncelleme penceresi
     def _show_update_dialog(self, version, url, notes, mandatory, size, checksum):
-        """Kullanıcı istedi (tepsi satırı / başlık çubuğu düğmesi): sürüm, boyut ve notları göster. Doğrudan kurmaz."""
+        """Kullanıcı istedi (tepsi satırı / Ayarlar'daki düğme): sürüm, boyut ve notları göster. Doğrudan kurmaz."""
         self._upd = (url, size, checksum)
         self._upd_mandatory = bool(mandatory)
         dialog = UpdateDialog(version, notes, bool(mandatory), self, lang=self.lang, size=size)
@@ -1958,7 +1958,7 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
     def show_pending_update(self):
-        """Tepsi satırı / başlık çubuğu düğmesi: bekleyen güncellemenin penceresini aç (zaten açıksa öne getir)."""
+        """Tepsi satırı / Ayarlar'daki düğme: bekleyen güncellemenin penceresini aç (zaten açıksa öne getir)."""
         if not self._pending_update:
             return
         if self.update_dialog is not None:

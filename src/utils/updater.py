@@ -249,7 +249,7 @@ class UpdateChecker(QObject):
         return get_active_language(self.config)
 
     def _show_info(self, title: str, text: str):
-        """Güncelleme sonuçları için pop-up açılmaz: ayarlardaki durum satırı / başlık çubuğundaki düğme gösterir."""
+        """Güncelleme sonuçları için pop-up açılmaz: ayarlardaki durum satırı / "Güncelle" düğmesi gösterir."""
         log_info(f"{title}: {text}")
 
     def _show_warning(self, title: str, text: str):

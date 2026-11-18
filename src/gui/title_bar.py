@@ -49,7 +49,6 @@ class TitleBar(QFrame):
     accent_selected = pyqtSignal(str)
     language_selected = pyqtSignal(str)
     settings_clicked = pyqtSignal()
-    update_clicked = pyqtSignal()
     help_clicked = pyqtSignal()
     minimize_clicked = pyqtSignal()
     maximize_clicked = pyqtSignal()
@@ -199,16 +198,7 @@ class TitleBar(QFrame):
         right_l.setSpacing(2)
         right_l.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
 
-        # Güncelleme düğmesi: sessiz denetim yeni sürüm bulursa görünür (pop-up yok)
-        self._update_version = ""
-        self.update_btn = QPushButton()
-        self.update_btn.setObjectName("update_pill")
-        self.update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.update_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.update_btn.clicked.connect(self.update_clicked.emit)
-        self.update_btn.setVisible(False)
-        right_l.addWidget(self.update_btn)
-
+        # Bekleyen güncelleme başlıkta değil, Ayarlar > Güncellemeler'de ve tepsi menüsünde görünür (FlexiKey gibi)
         self.min_btn = QPushButton("−")
         self.max_btn = QPushButton("□")
         self.close_btn = QPushButton("×")
@@ -259,20 +249,6 @@ class TitleBar(QFrame):
         spec = ACCENTS.get(self._accent_key)
         if spec:
             self.color_btn.setIcon(_color_swatch_icon(spec["accent"]))
-
-    def set_update_available(self, version: str = "") -> None:
-        """"Güncelle · vX" düğmesini göster/gizle (version boşsa gizler) ve başlık çubuğunu yeniden dengele."""
-        self._update_version = version or ""
-        self._apply_update_text()
-        self.update_btn.setVisible(bool(self._update_version))
-        self._balance_title_bar()
-
-    def _apply_update_text(self) -> None:
-        if not self._update_version:
-            return
-        lang = getattr(self, "_lang", "tr")
-        self.update_btn.setText(t("update_pill", lang).format(version=self._update_version))
-        self.update_btn.setToolTip(t("update_pill_tip", lang).format(version=self._update_version))
 
     def _balance_title_bar(self):
         if hasattr(self, "left_box") and hasattr(self, "right_box"):
@@ -339,8 +315,6 @@ class TitleBar(QFrame):
         self.min_btn.setToolTip(t("minimize", lang))
         self.max_btn.setToolTip(t("maximize", lang))
         self.close_btn.setToolTip(t("close_tooltip", lang))
-        if hasattr(self, "update_btn"):
-            self._apply_update_text()
 
     def set_maximized(self, maximized: bool):
         self.max_btn.setText("❐" if maximized else "□")

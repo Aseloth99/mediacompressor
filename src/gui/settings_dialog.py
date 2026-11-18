@@ -1,6 +1,6 @@
 """Ayarlar penceresi (özel başlık çubuklu)."""
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QGridLayout, QHBoxLayout,
     QLabel, QPushButton, QVBoxLayout,
@@ -150,6 +150,12 @@ class SettingsDialog(ChromeDialog):
         self.check_btn.setProperty("class", "ghost")
         self.check_btn.clicked.connect(self._check_updates)
         check_row.addWidget(self.check_btn)
+        # Yeni sürüm varsa durum metni yerine bu düğme görünür; güncelleme penceresini açar (tıklamak kurmaz)
+        self.update_open_btn = QPushButton()
+        self.update_open_btn.setProperty("class", "primary")
+        self.update_open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_open_btn.clicked.connect(self._open_pending_update)
+        check_row.addWidget(self.update_open_btn)
         check_row.addStretch()
         layout.addLayout(check_row)
 
@@ -159,9 +165,7 @@ class SettingsDialog(ChromeDialog):
         self.update_status = QLabel(t("current_version", self.lang).format(VERSION))
         self.update_status.setObjectName("update_status")
         self.update_check = UpdateCheckAnimator(self.check_btn, self.update_status, self)
-        pending = getattr(parent, "_pending_update", None)
-        if pending:  # sessiz denetim zaten yeni sürüm bulmuş
-            self.update_status.setText(t("update_new_version", self.lang).format(version=pending[0]))
+        self.show_pending_update(self._pending_version())  # sessiz denetim zaten bulmuş olabilir
         info.addWidget(self.update_status)
 
         gpu = QLabel(t("gpu_prefix", self.lang).format(gpu_text or t("gpu_none_value", self.lang)))
@@ -269,14 +273,35 @@ class SettingsDialog(ChromeDialog):
         self.update_check.start(t("checking", self.lang))
         self.updater.check_for_updates(show_message=True)
 
+    def _pending_version(self) -> str:
+        getter = getattr(self.parent(), "pending_update_version", None)
+        return str(getter() or "") if callable(getter) else ""
+
+    def show_pending_update(self, version: str):
+        """Yeni sürüm varsa "↑ Güncelle · vX" düğmesi durum metninin yerini alır (FlexiKey'deki gibi)."""
+        version = str(version or "")
+        self.update_open_btn.setVisible(bool(version))
+        self.update_status.setVisible(not version)
+        if version:
+            self.update_open_btn.setText("↑  " + t("update_pill", self.lang).format(version=version))
+            self.update_open_btn.setToolTip(t("update_pill_tip", self.lang).format(version=version))
+
+    def _open_pending_update(self):
+        """Ayarlar kapanır (kaydedilmemiş değişiklikler uygulanmaz) ve güncelleme penceresi açılır: Ayarlar kalıcı
+        (modal) olduğundan üstünde açılan güncelleme penceresi tıklanamazdı."""
+        window = self.parent()
+        self.reject()
+        if window is not None and hasattr(window, "show_pending_update"):
+            QTimer.singleShot(0, window.show_pending_update)
+
     def _on_check_complete(self, has_update: bool):
         if has_update:
-            pending = getattr(self.parent(), "_pending_update", None)
-            self.update_check.finish(
-                "new",
-                t("update_new_version", self.lang).format(version=pending[0]) if pending
-                else t("update_new_available", self.lang),
-            )
+            pending = self._pending_version()
+            if pending:
+                self.update_check.cancel()
+                self.show_pending_update(pending)
+                return
+            self.update_check.finish("new", t("update_new_available", self.lang))
         else:
             self.update_check.finish("ok", t("up_to_date", self.lang).format(VERSION))
 

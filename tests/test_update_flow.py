@@ -419,13 +419,75 @@ class MainWindowUpdateIntegrationTests(ModalGuard, unittest.TestCase):
         return self.w.update_dialog
 
     # ---- sunum
-    def test_offer_shows_the_pill_and_the_pending_version_but_opens_nothing(self) -> None:
+    def test_offer_remembers_the_pending_version_but_opens_nothing(self) -> None:
         self._offer()
         self.assertEqual(self.w.pending_update_version(), "1.2.3")
-        self.assertFalse(self.w.title_bar.update_btn.isHidden())
-        self.assertEqual(self.w.title_bar.update_btn.text(), "Güncelle · v1.2.3")
+        self.assertFalse(hasattr(self.w.title_bar, "update_btn"), "başlık çubuğunda güncelleme düğmesi yok")
         self.assertIsNone(self.w.update_dialog)
         self.assertEqual(FakeDownload.instances, [])
+
+    # ---- Ayarlar > Güncellemeler: "↑ Güncelle · vX" düğmesi
+    def _settings(self, updater=None):
+        from src.gui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self.w.config, "", "", self.w, updater=updater, theme=self.w.theme)
+        self.addCleanup(lambda d=dialog: (d.setModal(False), d.hide(), destroy(d)))
+        dialog.open()  # _open_settings gibi kalıcı (modal); exec() testi bekletirdi
+        self.app.processEvents()
+        return dialog
+
+    def _assert_settings_button(self, dialog, version) -> None:
+        self.assertTrue(dialog.update_open_btn.isVisibleTo(dialog))
+        self.assertFalse(dialog.update_status.isVisibleTo(dialog), "düğme durum metninin yerini alır")
+        self.assertEqual(dialog.update_open_btn.text(), f"↑  Güncelle · v{version}")
+        self.assertEqual(dialog.update_open_btn.toolTip(), f"Yeni sürüm v{version} hazır; ayrıntılar ve kurulum için tıklayın")
+        self.assertEqual(dialog.update_open_btn.property("class"), "primary")
+
+    def test_settings_without_a_pending_update_shows_the_status_line_only(self) -> None:
+        dialog = self._settings()
+        self.assertFalse(dialog.update_open_btn.isVisibleTo(dialog))
+        self.assertTrue(dialog.update_status.isVisibleTo(dialog))
+        self.assertIn(VERSION, dialog.update_status.text())
+
+    def test_settings_opened_with_a_pending_update_shows_the_button(self) -> None:
+        self._offer()
+        self._assert_settings_button(self._settings(), "1.2.3")
+
+    def test_update_found_while_settings_is_open_shows_the_button_live(self) -> None:
+        dialog = self._settings()
+        self.assertFalse(dialog.update_open_btn.isVisibleTo(dialog))
+        self._offer()
+        self._assert_settings_button(dialog, "1.2.3")
+        self._offer(version="1.2.4")  # daha yeni sürüm: metin güncellenir
+        self._assert_settings_button(dialog, "1.2.4")
+
+    def test_settings_button_closes_settings_then_opens_the_update_dialog(self) -> None:
+        self._offer()
+        dialog = self._settings()
+        self.assertIsNone(self.w.update_dialog)
+        dialog.update_open_btn.click()
+        self.assertFalse(dialog.isVisible(), "Ayarlar kapanır (modal olduğundan üstündeki pencere tıklanamazdı)")
+        self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected.value, "kaydedilmemiş ayarlar uygulanmaz")
+        self.assertIsNone(self.w.update_dialog, "güncelleme penceresi olay döngüsünün bir sonraki turunda açılır")
+        self.app.processEvents()
+        self.assertIsInstance(self.w.update_dialog, UpdateDialog)
+        self.assertTrue(self.w.update_dialog.isVisible())
+        self.assertEqual(self.w.update_dialog.state, UpdateDialog.IDLE)
+        self.assertEqual((FakeDownload.instances, self.mock_install.call_count), ([], 0), "tıklamak kurmaz")
+
+    def test_manual_check_that_finds_an_update_shows_the_button(self) -> None:
+        from src.utils.updater import UpdateChecker
+
+        checker = UpdateChecker(self.w.config)
+        checker.update_available.connect(self.w._on_update_available)  # gerçek uygulamadaki bağlantı
+        dialog = self._settings(updater=checker)
+        dialog.update_check.start("Kontrol ediliyor…")  # "Kontrol Et" (ağa çıkmadan)
+        checker._on_worker_result({"updateAvailable": True, "version": "99.0.0", "download_url": URL,
+                                   "checksum": SHA, "fileSize": 1000})
+        self.assertEqual(self.w.pending_update_version(), "99.0.0")
+        self._assert_settings_button(dialog, "99.0.0")
+        self.assertFalse(dialog.update_check.running, "dönen simge durur")
+        self.assertTrue(dialog.check_btn.isEnabled())
 
     def test_pill_or_tray_opens_the_dialog_even_when_the_main_window_is_hidden_and_never_installs(self) -> None:
         self._offer()
@@ -489,7 +551,7 @@ class MainWindowUpdateIntegrationTests(ModalGuard, unittest.TestCase):
         self.assertTrue(self.mock_install.call_args.kwargs["visible"])
         self.w.hide()
 
-    def test_download_failure_stays_in_the_dialog_with_retry_and_keeps_the_pill(self) -> None:
+    def test_download_failure_stays_in_the_dialog_with_retry_and_keeps_the_pending_update(self) -> None:
         dialog = self._open_dialog()
         dialog.update_btn.click()
         self.installer.download_failed.emit("Dosya bütünlüğü doğrulanamadı (checksum).")
@@ -497,7 +559,6 @@ class MainWindowUpdateIntegrationTests(ModalGuard, unittest.TestCase):
         self.assertTrue(dialog.isVisible())
         self.assertIn("checksum", dialog.error_label.text())
         self.assertEqual(self.w.pending_update_version(), "1.2.3")
-        self.assertFalse(self.w.title_bar.update_btn.isHidden())
         FakeDownload.instances[0].running = False  # indirme iş parçacığı çıktı
         dialog.update_btn.click()  # Tekrar dene
         self.assertEqual(len(FakeDownload.instances), 2)
