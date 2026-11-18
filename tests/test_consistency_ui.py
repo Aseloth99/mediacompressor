@@ -146,12 +146,13 @@ class TitleBarMenuTests(_Base):
     def test_no_emoji_in_the_title_bar_and_window_glyphs_are_the_shared_pair(self) -> None:
         bar = self._bar()
         for btn in bar.findChildren(QPushButton):
-            self.assertIsNone(_EMOJI.search(btn.text().replace("□", "").replace("❐", "")), btn.text())
-        self.assertEqual(bar.max_btn.text(), "□")
+            self.assertIsNone(_EMOJI.search(btn.text()), btn.text())
+        # büyüt/geri yükle metin değil vektör glif (dört uygulamada aynı 32'lik ızgara)
+        self.assertEqual((bar.max_btn.text(), bar.max_btn.glyph), ("", "maximize"))
         bar.set_maximized(True)
-        self.assertEqual(bar.max_btn.text(), "❐")
+        self.assertEqual((bar.max_btn.text(), bar.max_btn.glyph), ("", "restore"))
         bar.set_maximized(False)
-        self.assertEqual(bar.max_btn.text(), "□")
+        self.assertEqual((bar.max_btn.text(), bar.max_btn.glyph), ("", "maximize"))
 
     def test_menu_button_icons_follow_the_accent(self) -> None:
         bar = self._bar()
@@ -442,7 +443,8 @@ class MicrocopyTests(_Base):
     def test_no_emoji_in_locale_texts(self) -> None:
         for lang, table in LOCALES.items():
             for key, value in table.items():
-                self.assertIsNone(_EMOJI.search(value.replace("→", "")), f"{lang}.{key}: {value}")
+                # → ve ↑ (başlıktaki güncelleme simgesine işaret eder) ok karakteri; emoji değil
+                self.assertIsNone(_EMOJI.search(value.replace("→", "").replace("↑", "")), f"{lang}.{key}: {value}")
 
     def test_control_labels_are_title_case(self) -> None:
         keys = {

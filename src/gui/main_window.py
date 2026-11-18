@@ -322,6 +322,7 @@ class MainWindow(QMainWindow):
         self.title_bar.minimize_clicked.connect(self.showMinimized)
         self.title_bar.maximize_clicked.connect(self._toggle_max)
         self.title_bar.close_clicked.connect(self.close)
+        self.title_bar.update_clicked.connect(self.show_pending_update)  # ↑: Ayarlar düğmesi/tepsi satırıyla aynı pencere
 
         chrome_l = QVBoxLayout(chrome)
         chrome_l.setContentsMargins(0, 0, 0, 0)
@@ -1816,8 +1817,10 @@ class MainWindow(QMainWindow):
         return str(pending[0]) if pending else ""
 
     def _sync_update_indicators(self) -> None:
-        """Açık Ayarlar penceresindeki "Güncelle · vX" düğmesi ve tepsi satırı bekleyen güncellemeyle aynı durumda olsun."""
+        """Başlıktaki ↑, açık Ayarlar penceresindeki "Güncelle · vX" düğmesi ve tepsi satırı bekleyen güncellemeyle
+        aynı durumda olsun."""
         version = self.pending_update_version()
+        self.title_bar.set_update_available(version)
         for dialog in self.findChildren(SettingsDialog):
             dialog.show_pending_update(version)
         if self.tray:

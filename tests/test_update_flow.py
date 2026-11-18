@@ -422,7 +422,8 @@ class MainWindowUpdateIntegrationTests(ModalGuard, unittest.TestCase):
     def test_offer_remembers_the_pending_version_but_opens_nothing(self) -> None:
         self._offer()
         self.assertEqual(self.w.pending_update_version(), "1.2.3")
-        self.assertFalse(hasattr(self.w.title_bar, "update_btn"), "başlık çubuğunda güncelleme düğmesi yok")
+        self.assertTrue(self.w.title_bar.update_btn.isVisibleTo(self.w.title_bar), "başlıkta küçük ↑ görünür")
+        self.assertEqual(self.w.title_bar.update_btn.text(), "", "yalnızca simge: başlıkta metinli pill yok")
         self.assertIsNone(self.w.update_dialog)
         self.assertEqual(FakeDownload.instances, [])
 
@@ -506,6 +507,20 @@ class MainWindowUpdateIntegrationTests(ModalGuard, unittest.TestCase):
             self.w.show_pending_update()  # ikinci tık: ikinci pencere açılmaz, mevcut olan öne gelir
         self.assertIs(self.w.update_dialog, dialog)
         self.assertEqual(raised, ["raise", "activate"])
+
+    def test_title_bar_arrow_opens_the_same_dialog_and_never_installs(self) -> None:
+        self.assertFalse(self.w.title_bar.update_btn.isVisibleTo(self.w.title_bar), "bekleyen güncelleme yokken gizli")
+        self._offer()
+        self.w.title_bar.update_btn.click()
+        self.app.processEvents()
+        dialog = self.w.update_dialog
+        self.assertIsInstance(dialog, UpdateDialog)
+        self.assertEqual(dialog.state, UpdateDialog.IDLE)
+        self.assertEqual((FakeDownload.instances, self.mock_install.call_count), ([], 0))
+        with mock.patch.object(self.w, "_show_update_dialog") as again:
+            self.w.title_bar.update_btn.click()  # Ayarlar düğmesi/tepsi satırıyla aynı yol: ikinci pencere açılmaz
+        again.assert_not_called()
+        self.assertIs(self.w.update_dialog, dialog)
 
     def test_nothing_happens_without_a_pending_update(self) -> None:
         self.w.show_pending_update()

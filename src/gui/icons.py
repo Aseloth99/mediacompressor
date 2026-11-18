@@ -349,3 +349,62 @@ def app_fallback_pixmap(size: int = 22, color: str = DEFAULT_ICON_COLOR) -> QPix
     p.drawPolyline([QPointF(6.0, 12.0), QPointF(10.0, 10.0), QPointF(14.0, 12.0)])
     p.end()
     return pix
+
+
+# ---------------------------------------------------------------------- pencere düğmesi glifleri (32'lik ızgara)
+# Dört PyQt uygulamasında aynı: büyüt (tek kare), geri yükle (üst üste iki kare; arkadaki öndekinin altından görünmez)
+# ve başlıktaki "güncelleme hazır" oku. Düğmenin paintEvent'inde doğrudan çizilir: her ölçekte (%100/%125/%150) keskin.
+WINDOW_GLYPHS = ("maximize", "restore", "update")
+# 32'lik ızgaranın düğmede kapladığı mantıksal kare: 7.5 birim = 4 px, böylece büyüt karesinin kenarları ve okun gövdesi
+# %100/%125/%150/%200 ölçekte tam piksele oturur (□ 8 px, çizgi ≈ 1 px: yanındaki ince "−" ve "×" ile aynı iri).
+WINDOW_GLYPH_PX = 32 * 8 / 15
+_SNAP_REF = {"maximize": (8.5, 8.5), "restore": (8.0, 11.5), "update": (16.0, 9.0)}  # piksel merkezine oturan nokta
+
+
+def paint_window_glyph(painter: QPainter, target: QRectF, kind: str, color) -> None:
+    """`kind` ("maximize" | "restore" | "update") glifini `target` karesine (32'lik ızgara) `color` ile çizer."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.translate(target.x(), target.y())
+    painter.scale(target.width() / 32.0, target.height() / 32.0)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    ink = QColor(color)
+    if kind == "maximize":
+        painter.setPen(_pen(ink, 1.85))
+        painter.drawRoundedRect(QRectF(8.5, 8.5, 15, 15), 2.2, 2.2)
+    elif kind == "restore":
+        front = QRectF(8, 11.5, 12.5, 12.5)
+        painter.setPen(_pen(ink, 1.7))
+        # Arkadaki kare yalnızca öndekinin örtmediği yerde: çizgiler kesişmez (Windows'un kendi simgesi gibi)
+        hole = QPainterPath()
+        hole.addRoundedRect(front, 1.8, 1.8)
+        area = QPainterPath()
+        area.addRect(QRectF(-2, -2, 36, 36))
+        painter.save()
+        painter.setClipPath(area.subtracted(hole), Qt.ClipOperation.IntersectClip)
+        painter.drawRoundedRect(QRectF(11.5, 7.5, 12.5, 12.5), 1.8, 1.8)
+        painter.restore()
+        painter.drawRoundedRect(front, 1.8, 1.8)  # kırpma kenarı öndeki çizginin altında kalır
+    elif kind == "update":
+        painter.setPen(_pen(ink, 2.1))
+        painter.drawLine(QPointF(16, 24), QPointF(16, 9))
+        painter.drawPolyline([QPointF(10.5, 14.5), QPointF(16, 9), QPointF(21.5, 14.5)])
+    painter.restore()
+
+
+def paint_centered_window_glyph(painter: QPainter, rect, kind: str, color, size: float = WINDOW_GLYPH_PX,
+                                center_y: float | None = None) -> None:
+    """Glifi `rect`in (düğmenin) ortasına `size` px'lik kare olarak çizer (`center_y`: komşu metin gliflerinin dikey
+    ortası). Ana çizgiler aygıt pikselinin ortasına kaydırılır: kesirli ölçekte de bulanıklaşmaz."""
+    box = QRectF(rect)
+    cy = box.center().y() if center_y is None else float(center_y)
+    ox, oy = box.center().x() - size / 2.0, cy - size / 2.0
+    ref = _SNAP_REF.get(kind)
+    if ref is not None:
+        unit = size / 32.0
+        dev = painter.deviceTransform()
+        sx, sy = abs(dev.m11()) or 1.0, abs(dev.m22()) or 1.0
+        at = dev.map(QPointF(ox + ref[0] * unit, oy + ref[1] * unit))
+        ox += (round(at.x() - 0.5) + 0.5 - at.x()) / sx
+        oy += (round(at.y() - 0.5) + 0.5 - at.y()) / sy
+    paint_window_glyph(painter, QRectF(ox, oy, size, size), kind, color)

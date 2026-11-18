@@ -19,14 +19,17 @@ olur ve kenarlardan (gölge payından) sistem yeniden boyutlandırması başlat�
 from __future__ import annotations
 
 from PyQt6.QtCore import QEvent, QPoint, QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QAbstractButton, QApplication, QDialog, QFrame, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor, QPainter, QPainterPath
+from PyQt6.QtWidgets import QAbstractButton, QDialog, QFrame, QScrollArea, QVBoxLayout, QWidget
 
+from ..utils.locales import t
+from . import icons
 from .message_box import (  # noqa: PLC2701 (ortak modülün çerçeve parçaları; aynı projede, testle korunur)
     _SHADOW,
     _TITLE_H,
     _ChromeDialog,
     _TitleBar,
+    _lang,
     _plain,
     button_text,
     current_palette,
@@ -46,7 +49,7 @@ def _dialog_qss(p: dict) -> str:
 
 
 class _MaxButton(QAbstractButton):
-    """Başlıkta büyüt/geri al düğmesi: ana pencerenin başlığıyla aynı glif çifti (□ / ❐)."""
+    """Başlıkta büyüt/geri yükle düğmesi: ana pencerenin başlığıyla aynı vektör glifler (tek kare / iki kare)."""
 
     def __init__(self, pal: dict, parent: QWidget | None = None):
         super().__init__(parent)
@@ -56,24 +59,28 @@ class _MaxButton(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         _plain(self, "mb_max")
+        self.set_maximized(False)
+
+    @property
+    def glyph(self) -> str:
+        return "restore" if self._maximized else "maximize"
 
     def set_maximized(self, maximized: bool) -> None:
         self._maximized = bool(maximized)
+        text = t("restore" if self._maximized else "maximize", _lang())
+        self.setToolTip(text)
+        self.setAccessibleName(text)
         self.update()
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.underMouse() or self.isDown():
             path = QPainterPath()
             path.addRoundedRect(QRectF(self.rect()), 6, 6)
             painter.fillPath(path, QColor(self._pal["surface"] if not self.isDown() else self._pal["sunken"]))
-        painter.setPen(QColor(self._pal["text"]))
-        font = QFont("Segoe UI")
-        font.setPointSize(13)
-        font.setWeight(QFont.Weight.Light)
-        painter.setFont(font)
-        painter.drawText(self.rect(), int(Qt.AlignmentFlag.AlignCenter), "❐" if self._maximized else "□")
+        icons.paint_centered_window_glyph(painter, QRectF(self.rect()), self.glyph, self._pal["text"])
+        painter.end()
 
     def enterEvent(self, event) -> None:
         self.update()
