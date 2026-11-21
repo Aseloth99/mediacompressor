@@ -1,4 +1,8 @@
-"""Sürükle-bırak alanı — sabit yükseklik, taşmaz."""
+"""Sürükle-bırak alanı — sabit yükseklik, taşmaz.
+
+Dosya sürüklenirken (alanın ya da pencerenin üstünde) `dragActive` özelliğiyle vurgulanır: düz vurgu kenarlığı,
+yumuşak vurgu zemini ve "Bırakın, kuyruğa eklensin" yazısı. Sürükleme ayrılınca ya da bırakılınca eski hâline döner.
+"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -18,6 +22,7 @@ class DropZone(QFrame):
         super().__init__(parent)
         self.setObjectName("DropZone")
         self.setAcceptDrops(True)
+        self.setProperty("dragActive", False)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.lang = "tr"
         self._has_custom_status = False
@@ -70,7 +75,7 @@ class DropZone(QFrame):
 
     def retranslate(self, lang: str = "tr"):
         self.lang = lang
-        self.hint_text.setText(t("drop_hint", lang))
+        self.hint_text.setText(t("drop_release" if self.is_drag_active() else "drop_hint", lang))
         self.folder_btn.setText(t("choose_folder", lang))
         self.files_btn.setText(t("choose_file", lang))
         self.open_folder_btn.setText(t("open_folder", lang))
@@ -105,12 +110,39 @@ class DropZone(QFrame):
         # file:// URL'leri (Windows/macOS/çoğu Linux yöneticisi); URL yoksa düz metin dosya yolları.
         return local_paths_from_drop(mime.urls(), mime.text() if mime.hasText() else "")
 
+    @classmethod
+    def accepts_mime(cls, mime) -> bool:
+        return bool(mime is not None and (mime.hasUrls() or (mime.hasText() and cls._dropped_paths(mime))))
+
+    # ------------------------------------------------------------------ sürükleme vurgusu
+    def is_drag_active(self) -> bool:
+        return bool(self.property("dragActive"))
+
+    def set_drag_active(self, active: bool) -> None:
+        """Sürükleme vurgusunu açar/kapatır (ana pencere, dosya pencerenin başka bir yerinde sürüklenirken de çağırır)."""
+        active = bool(active)
+        if active == self.is_drag_active():
+            return
+        self.setProperty("dragActive", active)
+        self.hint_text.setText(t("drop_release" if active else "drop_hint", self.lang))
+        for widget in (self, self.hint_text):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        self.update()
+
     def dragEnterEvent(self, event: QDragEnterEvent):
-        mime = event.mimeData()
-        if mime.hasUrls() or (mime.hasText() and self._dropped_paths(mime)):
+        if self.accepts_mime(event.mimeData()):
             event.acceptProposedAction()
+            self.set_drag_active(True)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):  # noqa: N802
+        self.set_drag_active(False)
+        super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QDropEvent):
+        self.set_drag_active(False)
         paths = self._dropped_paths(event.mimeData())
         if paths:
             self.files_dropped.emit(paths)

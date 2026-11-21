@@ -95,7 +95,7 @@ class ProgressRowsTest(_Case):
         with mock.patch.object(mw.time, "time", return_value=1040.0):
             w._on_file_progress(clip, 0.41)
         self.assertAlmostEqual(w.queue.progress_of(clip), 0.41)
-        self.assertRegex(w.queue.status_display(clip), r"^%41 · ~\d+ sn$")
+        self.assertRegex(w.queue.status_display(clip), r"^%41 · ~\d+ (sn|dk)( \d+ sn)?$")
         self.assertRegex(w.overall_label.text(), r"^0/2 dosya  ·  %\d+$")
         # bitiş sinyali satırı kapatır; ardından gelen 1.0 ilerlemesi satırı yeniden açmaz
         w._on_file_done(clip, "ok", {"in": 64, "out": 32})

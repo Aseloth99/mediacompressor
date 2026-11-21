@@ -91,7 +91,12 @@ class UpdateChecker(QObject):
     CURRENT_VERSION = VERSION
     UPDATE_CHECK_URL = UPDATE_CHECK_URL
     APP_NAME = APP_ID
-    CHECK_INTERVAL_HOURS = 24
+    # Açılışta: son denetim bundan eskiyse hemen denetlenir (uzun süre açılmayanlar yeni sürümü hemen görür).
+    STARTUP_STALE_HOURS = 1
+    # Açıkken: en geç bu kadar saatte bir denetlenir.
+    CHECK_INTERVAL_HOURS = 4
+    # Sık tık duvar saatine bakar: uyku / hazırda bekleme sonrası kaçan denetim de yakalanır.
+    TICK_MINUTES = 30
 
     def __init__(self, config: Config, parent=None):
         super().__init__(parent)
@@ -106,21 +111,21 @@ class UpdateChecker(QObject):
     def start(self):
         if not self.config.get("auto_update_check", True):
             return
-        self._check_if_needed()
-        self.check_timer.start(self.CHECK_INTERVAL_HOURS * 3600 * 1000)
+        self._check_if_needed(self.STARTUP_STALE_HOURS)
+        self.check_timer.start(self.TICK_MINUTES * 60 * 1000)
 
     def stop(self):
         self.check_timer.stop()
 
     def _auto_check(self):
-        self.check_for_updates(show_message=False)
+        self._check_if_needed(self.CHECK_INTERVAL_HOURS)
 
-    def _check_if_needed(self):
+    def _check_if_needed(self, max_age_hours: float | None = None):
         last_check_str = self.config.get("last_update_check")
         if last_check_str:
             try:
                 self.last_check_time = datetime.fromisoformat(last_check_str)
-                if datetime.now() - self.last_check_time < timedelta(hours=self.CHECK_INTERVAL_HOURS):
+                if datetime.now() - self.last_check_time < timedelta(hours=self.CHECK_INTERVAL_HOURS if max_age_hours is None else max_age_hours):
                     return
             except Exception:
                 pass

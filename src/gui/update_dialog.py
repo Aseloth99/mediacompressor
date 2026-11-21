@@ -14,6 +14,7 @@ from ..core.app_info import VERSION
 from ..utils.helpers import format_bytes, format_speed
 from ..utils.locales import get_app_name, t
 from .chrome_dialog import ChromeDialog
+from .smooth_progress import SmoothProgressBar
 
 
 def _set_notes(box, notes: str, default: str) -> None:
@@ -89,7 +90,7 @@ class UpdateDialog(ChromeDialog):
         _set_notes(self.notes, release_notes, t("update_notes_default", self.lang))
         layout.addWidget(self.notes, 1)
 
-        self.progress_bar = QProgressBar()
+        self.progress_bar = SmoothProgressBar()
         self.progress_bar.setMinimumHeight(18)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)

@@ -8,8 +8,8 @@ import threading
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices, QIcon
+from PyQt6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QMainWindow, QProgressBar, QPushButton,
@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.app_info import APP_ID, APP_NAME, BITRATE_AUTO, CUSTOM_RES, VERSION, normalize_bitrate
-from ..core.eta import JobEta, file_eta
+from ..core.eta import EtaSmoother, JobEta, file_eta
 from ..core.ffmpeg_manager import FFmpegManager
 from ..core.gpu_detector import GpuDetector
 from ..core.image_compressor import IMAGE_EXTS
@@ -28,13 +28,14 @@ from ..utils.config import (
     Config, FILE_TYPE_ALL, FILE_TYPE_IMAGES, FILE_TYPE_VIDEOS, normalize_file_type,
 )
 from ..utils.helpers import (
-    default_output_dir, format_bytes, format_duration, norm_path,
+    default_output_dir, format_bytes, format_duration, format_eta, norm_path,
     resource_path, reveal_in_file_manager,
 )
 from ..utils.locales import AUTO_LANGUAGE, get_active_language, get_app_name, install_qt_translations, t
 from ..utils.logger import log_error, log_info
 from ..utils.theme_manager import DEFAULT_ACCENT, ThemeManager, fit_text_widgets
-from ..utils import self_update
+from ..utils import self_update, taskbar
+from ..utils.window_geometry import fit_to_screens, parse_saved
 from ..utils.update_installer import normalize_checksum, should_install_pending, should_show_pending_update
 from ..utils.notify import Notifier
 from . import icons
@@ -51,6 +52,9 @@ from .trim_dialog import TrimDialog
 from .tray import TrayIcon
 from .res_combo import find_res, mark_original, res_value, select_res
 from .update_dialog import UpdateDialog
+from .smooth_progress import SmoothProgressBar
+from .toast import Toast
+from . import anim
 
 # Kapanışta işçilerin iptal bayrağına yanıt vermesi için toplam bekleme (ms).
 SHUTDOWN_WAIT_MS = 8000
@@ -193,6 +197,13 @@ class DownloadThread(DaemonWorker):
         self.installer.download_update(self.url, self.size, self.checksum)
 
 
+def _call_if_present(obj, name: str) -> None:
+    """closeEvent testleri ana pencere yerine sade sahte nesnelerle çalışır: yeni yardımcılar yoksa atlanır."""
+    fn = getattr(obj, name, None)
+    if callable(fn):
+        fn()
+
+
 class _AutoHideLabel(QLabel):
     """A hint line that takes no room while it is empty."""
 
@@ -266,6 +277,13 @@ class MainWindow(QMainWindow):
         self._progress_done = 0
         self._progress_total = 0
         self._file_ratio = 0.0
+        self._eta_smooth = EtaSmoother()            # genel kalan süre: tahmin zıplamasın
+        self._file_eta_smooth = EtaSmoother(tau=4.0)  # satırdaki (dosya) kalan süre
+        self._stopping = False
+        self._undo_snapshot: dict | None = None     # son çıkarma/temizleme (toast'taki "Geri Al" için)
+        self._notification_click = None             # (eylem, klasör, zaman): tepsi bildirimine tıklanınca
+        # Görev çubuğu düğmesi genel ilerlemeyi yansıtır (yalnızca gerçek Windows penceresinde; ekransız testlerde yok)
+        self._taskbar = taskbar.TaskbarProgress(self._native_hwnd)
 
         self.setWindowTitle(get_app_name(self.lang))
         self.setWindowFlags(
@@ -277,6 +295,8 @@ class MainWindow(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(*self._default_window_size())
         self.setMinimumSize(860, 560)  # while a job runs the content needs ~545 px of height
+        self._restore_geometry()
+        self.setAcceptDrops(True)  # dosya pencerenin herhangi bir yerine bırakılabilir (bırakma alanı vurgulanır)
 
         icon = QIcon(resource_path("assets", "icons", "app_icon.png"))
         if not icon.isNull():
@@ -318,6 +338,7 @@ class MainWindow(QMainWindow):
         self.title_bar.settings_clicked.connect(self._open_settings)
         self.title_bar.add_files_clicked.connect(self._pick_files)
         self.title_bar.add_folder_clicked.connect(self._pick_folder)
+        self.title_bar.open_output_clicked.connect(self._open_output)
         self.title_bar.exit_clicked.connect(self.force_quit)
         self.title_bar.minimize_clicked.connect(self.showMinimized)
         self.title_bar.maximize_clicked.connect(self._toggle_max)
@@ -353,6 +374,7 @@ class MainWindow(QMainWindow):
         self.banner_label.setWordWrap(True)
         self.ffmpeg_btn = QPushButton(self._ffmpeg_button_text())
         self.ffmpeg_btn.setProperty("class", "primary")
+        self.ffmpeg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ffmpeg_btn.clicked.connect(lambda: self._prepare_ffmpeg(True))
         banner_row.addWidget(self.banner_label, 1)
         banner_row.addWidget(self.ffmpeg_btn)
@@ -536,6 +558,7 @@ class MainWindow(QMainWindow):
 
         self.adv_btn = QPushButton(t("adv_settings", self.lang))
         self.adv_btn.setProperty("class", "ghost")
+        self.adv_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.adv_btn.clicked.connect(self.adv_dialog.exec)
 
         self.preview_btn = QPushButton(t("preview_btn", self.lang))
@@ -631,6 +654,7 @@ class MainWindow(QMainWindow):
         self.remove_btn.hide()
         self.retry_btn = QPushButton(t("retry_failed", self.lang))
         self.retry_btn.setProperty("class", "ghost-mini")
+        self.retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.retry_btn.clicked.connect(self._retry_failed)
         self.retry_btn.hide()
         # İş kaydı kuyruğun altında açılır: düğmesi de kuyruğun başlığında (eskiden profil satırının sağındaydı).
@@ -697,9 +721,11 @@ class MainWindow(QMainWindow):
         self.open_btn.setProperty("class", "ghost")
         self.open_btn.setMinimumHeight(42)
         self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_btn.setToolTip(t("open_output_tip", self.lang))
         self.open_btn.clicked.connect(self._open_output)
         self.open_when_done = QCheckBox(t("open_when_done", self.lang))
         self.open_when_done.setToolTip(t("open_when_done_tip", self.lang))
+        self.open_when_done.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_when_done.setChecked(bool(self.config.get("open_output_when_done")))
         self.open_when_done.toggled.connect(
             lambda on: self.config.set("open_output_when_done", bool(on))
@@ -721,7 +747,7 @@ class MainWindow(QMainWindow):
         self.overall_label = QLabel(t("ready", self.lang))
         self.overall_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         self.overall_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.overall = QProgressBar()
+        self.overall = SmoothProgressBar()
         self.overall.setObjectName("slim_bar")
         self.overall.setValue(0)
         self.overall.setTextVisible(False)
@@ -745,6 +771,8 @@ class MainWindow(QMainWindow):
 
         self._grip = QSizeGrip(chrome)
         self._grip.setFixedSize(14, 14)
+        # Pencere içi kısa bildirim (kuyruktan çıkarma → "Geri Al", iş bitti → kazanılan yer): kuyruğun alt ortasında
+        self.toast = Toast(chrome, anchor=right)
         self._setup_shortcuts()
         self._apply_round_mask()
         fit_text_widgets(self)
@@ -800,6 +828,14 @@ class MainWindow(QMainWindow):
         bind("Ctrl+Shift+O", self._pick_folder)
         bind("F1", self._show_about)
         bind("F5", lambda: self._prepare_ffmpeg(download=False))
+        bind("Ctrl+Return", self._shortcut_start_stop)   # ana Enter
+        bind("Ctrl+Enter", self._shortcut_start_stop)    # sayısal tuş takımındaki Enter
+        bind("Ctrl+Shift+E", self._open_output)
+
+    def _shortcut_start_stop(self) -> None:
+        """Ctrl+Enter: düğme ne yapıyorsa onu yapar (başlat / durdur); düğme pasifse (boş kuyruk, durduruluyor) hiçbir şey."""
+        if self.start_btn.isEnabled() and self.start_btn.isVisible():
+            self._start_stop()
 
     def _show_about(self):
         AboutDialog(self, lang=self.lang).exec()
@@ -926,6 +962,7 @@ class MainWindow(QMainWindow):
                 return False
             icon = self._icon if self._icon and not self._icon.isNull() else self.windowIcon()
             self.tray = TrayIcon(self, icon, self, lang=self.lang)
+            self.tray.messageClicked.connect(self._on_notification_clicked)
             self.tray.show()
         return True
 
@@ -1080,6 +1117,7 @@ class MainWindow(QMainWindow):
         else:
             self.start_btn.setText(t("start_compression", self.lang))
         self.open_btn.setText(t("open_output", self.lang))
+        self.open_btn.setToolTip(t("open_output_tip", self.lang))
         self.open_when_done.setText(t("open_when_done", self.lang))
         self.log_toggle.setText(t("log", self.lang))
         self._refresh_panel_toggle()
@@ -1105,6 +1143,76 @@ class MainWindow(QMainWindow):
             cpath.addRoundedRect(QRectF(host.rect()), 12.0, 12.0)
             host.setMask(QRegion(cpath.toFillPolygon().toPolygon()))
 
+    # ------------------------------------------------------------------ pencere konumu/boyutu
+    def _restore_geometry(self) -> None:
+        """Son konum/boyut (ve büyütülmüşlük) geri yüklenir; görünmeyen ya da ekrandan büyük kayıt ekrana sığdırılır."""
+        saved = parse_saved(self.config.get("window_geometry"))
+        if saved is None:
+            return
+        rect, maximized = saved
+        screens = []
+        for screen in QApplication.screens():
+            g = screen.availableGeometry()
+            screens.append((g.x(), g.y(), g.width(), g.height()))
+        primary = QApplication.primaryScreen()
+        if primary is not None:  # birincil ekran ilk sırada: kayıt hiçbir ekrana düşmüyorsa orada ortalanır
+            g = primary.availableGeometry()
+            screens.sort(key=lambda s: s != (g.x(), g.y(), g.width(), g.height()))
+        x, y, w, h = fit_to_screens(rect, screens, (self.minimumWidth(), self.minimumHeight()))
+        self.setGeometry(QRect(x, y, w, h))
+        if maximized:
+            self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+
+    def _save_geometry(self) -> None:
+        if self.isMinimized():
+            return  # simge durumundaki pencerenin konumu anlamsız (-32000): son kayıt kalır
+        maximized = self.isMaximized() or self.isFullScreen()
+        g = self.normalGeometry() if maximized else self.geometry()
+        if not g.isValid() or g.width() < 200 or g.height() < 150:
+            previous = parse_saved(self.config.get("window_geometry"))
+            if previous is None:
+                return
+            x, y, w, h = previous[0]
+        else:
+            x, y, w, h = g.x(), g.y(), g.width(), g.height()
+        data = {"x": x, "y": y, "w": w, "h": h, "maximized": bool(maximized)}
+        if data != self.config.get("window_geometry"):
+            self.config.set("window_geometry", data)
+
+    def show_restored(self) -> None:
+        """Tepsiden / simge durumundan geri getirir; büyütülmüş pencere büyütülmüş kalır (showNormal bozuyordu)."""
+        if self.isMaximized():
+            self.showMaximized()
+        else:
+            self.showNormal()
+
+    # ------------------------------------------------------------------ pencereye sürükle-bırak
+    def dragEnterEvent(self, event):  # noqa: N802
+        if not self._job_running() and DropZone.accepts_mime(event.mimeData()):
+            event.acceptProposedAction()
+            self.drop.set_drag_active(True)  # nereye bırakılacağı belli olsun
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):  # noqa: N802
+        if not self._job_running() and DropZone.accepts_mime(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):  # noqa: N802
+        self.drop.set_drag_active(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):  # noqa: N802
+        self.drop.set_drag_active(False)
+        paths = DropZone._dropped_paths(event.mimeData())
+        if paths and not self._job_running():
+            event.acceptProposedAction()
+            self._add_sources(paths)
+        else:
+            event.ignore()
+
     def _toggle_max(self):
         if self.isMaximized():
             self.showNormal()
@@ -1118,6 +1226,9 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event):
         super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow() and not self._job_running():
+            if getattr(self, "_taskbar", None) is not None and self._taskbar.state == taskbar.ERROR:
+                self._taskbar.clear()  # hatalı iş görüldü: görev çubuğundaki kırmızı kalksın
         if event.type() == QEvent.Type.WindowStateChange and hasattr(self, "title_bar"):
             self.title_bar.set_maximized(self.isMaximized())
             if hasattr(self, "_grip"):
@@ -1129,6 +1240,14 @@ class MainWindow(QMainWindow):
         self._apply_round_mask()
         if hasattr(self, "_grip"):
             self._grip.move(self.width() - 16, self.height() - 16)
+        toast = getattr(self, "toast", None)
+        if toast is not None and toast.is_showing():
+            QTimer.singleShot(0, self._reposition_toast)  # yerleşim çapayı yeniden boyutlandırdıktan sonra
+
+    def _reposition_toast(self):
+        toast = getattr(self, "toast", None)
+        if toast is not None:
+            toast.reposition()
 
     def _toggle_log(self, on: bool):
         self.log_box.setVisible(on)
@@ -1335,6 +1454,7 @@ class MainWindow(QMainWindow):
         self._mark_custom()
 
     def _add_sources(self, paths: list[str], replace: bool = False):
+        self._forget_undo()  # kuyruk değişti: eski "Geri Al" artık eski hâli geri getiremez
         if replace:
             self.sources = []
             self.skip_paths.clear()
@@ -1434,7 +1554,7 @@ class MainWindow(QMainWindow):
         if not running:
             # Boş kuyrukta başlatılacak bir şey yok: düğme pasif kalır, nedenini ipucu söyler.
             self.start_btn.setEnabled(has_queue)
-            self.start_btn.setToolTip("" if has_queue else t("start_needs_files", self.lang))
+            self.start_btn.setToolTip(t("start_shortcut_tip" if has_queue else "start_needs_files", self.lang))
         self.clear_btn.setVisible(has_queue)
         self.clear_btn.setEnabled(not running)
         self.remove_btn.setVisible(has_queue)
@@ -1449,6 +1569,7 @@ class MainWindow(QMainWindow):
             return
         if not paths:
             return
+        snapshot = self._queue_snapshot()
         removed = {norm_path(p) for p in paths}
         self.skip_paths |= removed
         self.sources = [
@@ -1457,10 +1578,15 @@ class MainWindow(QMainWindow):
         ]
         remaining = [p for p in self.queue.paths() if norm_path(p) not in removed]
         if not self.sources:
-            self._clear_queue()
-            return
-        self.queue.set_files(remaining)
-        self._update_queue_actions()
+            self._reset_queue()
+        else:
+            self.queue.set_files(remaining)
+            self._update_queue_actions()
+        n = len(snapshot["order"]) - self.queue.rowCount()
+        if n > 0:
+            text = (t("toast_removed_one", self.lang).format(name=os.path.basename(paths[0])) if n == 1
+                    else t("toast_removed_n", self.lang).format(n=n))
+            self._offer_undo(text, snapshot)
 
     def _reveal_source(self, path: str):
         if not reveal_in_file_manager(path):
@@ -1473,6 +1599,51 @@ class MainWindow(QMainWindow):
     def _clear_queue(self):
         if self.worker and self.worker.isRunning():
             return
+        snapshot = self._queue_snapshot()
+        self._reset_queue()
+        if snapshot["order"]:
+            self._offer_undo(t("toast_cleared", self.lang).format(n=len(snapshot["order"])), snapshot)
+
+    # ------------------------------------------------------------------ geri al (toast)
+    def _queue_snapshot(self) -> dict:
+        return {
+            "sources": list(self.sources),
+            "skip": set(self.skip_paths),
+            "order": self.queue.paths(),
+            "overrides": self.queue.overrides(),
+        }
+
+    def _offer_undo(self, text: str, snapshot: dict) -> None:
+        self._undo_snapshot = snapshot
+        self.toast.show_message(text, t("toast_undo", self.lang), self._undo_queue_change)
+
+    def _forget_undo(self) -> None:
+        if self._undo_snapshot is not None:
+            self._undo_snapshot = None
+            toast = getattr(self, "toast", None)
+            if toast is not None:
+                toast.dismiss()
+
+    def _undo_queue_change(self) -> None:
+        """Toast'taki "Geri Al": son çıkarma/temizlemeden önceki kuyruk (sıra ve dosyaya özel istisnalar dahil)."""
+        snapshot, self._undo_snapshot = self._undo_snapshot, None
+        if not snapshot or self._job_running():
+            return
+        self.sources = list(snapshot["sources"])
+        self.skip_paths = set(snapshot["skip"])
+        self._refresh_source_ui()
+        present = self.queue.paths()
+        order = [p for p in snapshot["order"] if p in set(present)]
+        rest = [p for p in present if p not in set(order)]
+        if order + rest != present:
+            self.queue.apply_order(order + rest)
+        for path, overrides in snapshot["overrides"].items():
+            for key, label in overrides.items():
+                self.queue.set_override([path], key, label)
+        self._update_queue_actions()
+
+    def _reset_queue(self):
+        """Kuyruğu boşaltır (geri al teklifi olmadan)."""
         self.sources = []
         self.skip_paths.clear()
         self.queue.set_files([])
@@ -1483,6 +1654,8 @@ class MainWindow(QMainWindow):
         self.stats.setText("")
         self._sync_media_controls(False, False)
         self._update_queue_actions()
+        if not self._job_running():
+            self._taskbar.clear()
 
     def _pick_files(self):
         files, _ = QFileDialog.getOpenFileNames(
@@ -1542,18 +1715,21 @@ class MainWindow(QMainWindow):
             self.overall_label.setText("FFmpeg  ·  " + t("update_downloading", self.lang))
             self._show_progress(True)
         self.overall.setValue(int(p * 100))
+        if not self.worker:
+            self._taskbar.set_fraction(p)
 
     def _on_prepared(self, manager: FFmpegManager, gpu):
         self.ffmpeg = manager
         self.gpu = gpu
         if manager.is_ready():
-            self.banner.hide()
+            anim.slide_out(self.banner)
         else:
             self.banner_label.setText(manager.missing_hint(self.lang))
             # Windows: "FFmpeg İndir"; macOS/Linux: indirme yok, kurulumdan sonra "Yeniden Tara".
             self.ffmpeg_btn.setText(self._ffmpeg_button_text())
             self.ffmpeg_btn.setVisible(True)
-            self.banner.show()
+            if self.banner.isHidden() or anim.is_animating(self.banner):
+                anim.slide_in(self.banner)  # kısa kayarak açılır (Windows animasyonları kapalıysa anında)
         if gpu:
             self.gpu_label.setText(gpu.status_text())
             self.gpu_label.setObjectName("gpu_ok" if gpu.is_ok() else "gpu_warn")
@@ -1571,6 +1747,7 @@ class MainWindow(QMainWindow):
         if not self.worker:
             self.overall.setValue(0)
             self._show_progress(False)
+            self._taskbar.clear()
 
     def _collect_settings(self) -> dict | None:
         queued = self.queue.paths()
@@ -1614,6 +1791,8 @@ class MainWindow(QMainWindow):
             self.worker.stop()
             self.start_btn.setText(t("stopping", self.lang))
             self.start_btn.setEnabled(False)
+            self._stopping = True
+            self._taskbar.set_state(taskbar.PAUSED)  # görev çubuğunda sarı: duruyor
             return
         if self._installing:
             return  # güncelleme kuruluyor: uygulama birkaç saniye içinde yeniden başlayacak
@@ -1629,6 +1808,11 @@ class MainWindow(QMainWindow):
             return
         self.output_dir = settings["output_dir"]
         files = settings["sources"]
+        self._forget_undo()
+        self._stopping = False
+        self._eta_smooth.reset()
+        self._file_eta_smooth.reset()
+        self._taskbar.set_fraction(0.0, taskbar.NORMAL)
         self.queue.set_files(files)
         self.retry_btn.hide()
         self.overall.setValue(0)
@@ -1672,6 +1856,7 @@ class MainWindow(QMainWindow):
         self.queue.mark(path, "run")
         self._file_t0 = time.time()
         self._file_ratio = 0.0
+        self._file_eta_smooth.reset()
         if self._eta is not None:
             self._eta.started(path, self._file_t0)
         if Path(path).suffix.lower() in VIDEO_EXTS:
@@ -1684,7 +1869,9 @@ class MainWindow(QMainWindow):
         if self._eta is not None:
             self._eta.progress(path, self._file_ratio, now)
         remain = file_eta(now - self._file_t0, self._file_ratio) if self._file_t0 else None
-        eta = format_duration(remain, self.lang) if remain is not None else ""  # ilk %1'den sonra
+        # yumuşatılmış (EMA) ve okunur adımlara yuvarlanmış kalan süre: her sinyalde zıplamasın
+        remain = self._file_eta_smooth.update(remain, now) if remain is not None else None
+        eta = format_eta(remain, self.lang) if remain is not None else ""  # ilk %1'den sonra
         if self.queue.status_of(path) == "run":  # bitiş sinyalinden sonra gelen 1.0 satırı yeniden açmasın
             self.queue.set_progress(path, self._file_ratio, eta)
         self._refresh_job_stats()
@@ -1702,12 +1889,15 @@ class MainWindow(QMainWindow):
                 self.overall.setMaximum(OVERALL_STEPS)
             fraction = self._eta.fraction()
             self.overall.setValue(int(fraction * OVERALL_STEPS))
+            self._taskbar.set_fraction(fraction)
             remain = self._eta.remaining()
+            if remain is not None:
+                remain = self._eta_smooth.update(remain, time.time())
             # ince çubukta yazı yok: yüzde, dosya sayısının yanında ("5/8 dosya · %62")
             files = t("files_progress", self.lang).format(done=self._progress_done, total=self._progress_total)
             self.overall_label.setText(f"{files}  ·  {t('pct', self.lang).format(int(fraction * 100))}")
         if remain is not None:
-            remain_str = format_duration(max(0.0, remain), self.lang)
+            remain_str = format_eta(max(0.0, remain), self.lang)
             self.stats.setText(
                 t("stats_elapsed_remaining", self.lang).format(elapsed=elapsed_str, remaining=remain_str)
             )
@@ -1769,8 +1959,8 @@ class MainWindow(QMainWindow):
         if self.open_when_done.isChecked():
             self._open_output()
         self.open_when_done.hide()
-        # Ayar (show_notifications) Notifier'ın enabled_provider'ında gözetilir; tek yol Qt'nin tepsi bildirimi (+ macOS/Linux yedekleri)
-        self.notifier.notify(get_app_name(self.lang), self.overall_label.text())
+        saved = (b_in - b_out) if (b_in > 0 and ok > 0) else 0
+        self._announce_job_finished(bool(cancelled), int(fail or 0), saved)
         # Zorunlu güncelleme, iş iptal edilmiş olsa bile atlanmaz (eskiden `not cancelled`
         # koşulu zorunlu kurulumu/diyaloğu sessizce atlıyordu).
         pending_install = getattr(self, "_pending_install", None)
@@ -1789,6 +1979,47 @@ class MainWindow(QMainWindow):
         if pending_mandatory and should_show_pending_update(bool(self._pending_update), bool(cancelled), pending_mandatory):
             self._begin_silent_update(self._pending_update, mandatory=True)
 
+    def _announce_job_finished(self, cancelled: bool, failed: int, saved: int) -> None:
+        """İş bitti: görev çubuğu durumu, pencere arkadaysa görev çubuğunda yanıp sönme, kazanılan yerle bildirim.
+
+        Pencere öndeyse pencere içi toast ("Tamamlandı · 2.0 GB kazanıldı  [Klasörü Aç]"), değilse sistem bildirimi
+        (ayar: show_notifications); ikisine de tıklamak çıkış klasörünü açar."""
+        self._stopping = False
+        if failed and not cancelled:
+            self._taskbar.set_fraction(1.0, taskbar.ERROR)  # kırmızı: pencereye dönülünce temizlenir
+        else:
+            self._taskbar.clear()
+        active = self.isVisible() and self.isActiveWindow()
+        if not active:
+            QApplication.alert(self)  # görev çubuğu düğmesi yanıp söner
+        summary = self.overall_label.text()
+        saved_text = t("toast_saved", self.lang).format(size=format_bytes(saved)) if saved > 0 else ""
+        output = self._effective_output()
+        if active:
+            title = t("summary_cancelled" if cancelled else "summary_completed", self.lang)
+            text = f"{title}  ·  {saved_text}" if saved_text else summary
+            self._finished_output = output  # toast'a bağlı yöntem verilir (lambda pencereyi tutardı; bkz. toast.py)
+            self.toast.show_message(
+                text, t("open_folder", self.lang), self._open_finished_output,
+                on_click=self._open_finished_output, timeout_ms=8000, tooltip=t("toast_click_open", self.lang),
+            )
+            return
+        body = f"{summary}\n{saved_text}" if saved_text else summary
+        # Ayar (show_notifications) Notifier'ın enabled_provider'ında gözetilir; tek yol Qt'nin tepsi bildirimi (+ macOS/Linux yedekleri)
+        shown = self.notifier.notify(get_app_name(self.lang), body)
+        self._notification_click = ("open_output", output, time.time()) if shown else None
+
+    def _open_finished_output(self) -> None:
+        output = getattr(self, "_finished_output", None)
+        if output:
+            self._open_folder(output)
+
+    def _on_notification_clicked(self) -> None:
+        """Tepsi bildirimine tıklandı: iş bitti bildirimiyse (10 dk içinde) çıkış klasörünü açar."""
+        click, self._notification_click = self._notification_click, None
+        if click and click[0] == "open_output" and time.time() - click[2] < 600:
+            self._open_folder(click[1])
+
     def _retry_failed(self):
         failed = self.queue.failed_paths()
         if not failed:
@@ -1802,7 +2033,9 @@ class MainWindow(QMainWindow):
         return self.output_dir or default_output_dir()
 
     def _open_output(self):
-        path = self._effective_output()
+        self._open_folder(self._effective_output())
+
+    def _open_folder(self, path: str) -> None:
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as exc:
@@ -1924,6 +2157,7 @@ class MainWindow(QMainWindow):
         """Arka plan güncellemesi başarısız: pop-up yok; günlük + tepsi balonu (düğme yeniden denemek için durur)."""
         log_info(f"Sessiz güncelleme başarısız: {err}")
         if self.tray:
+            self._notification_click = None
             self.tray.notify(get_app_name(self.lang), t("update_auto_failed", self.lang))
 
     # ------------------------------------------------------------------ güncelleme penceresi
@@ -2091,10 +2325,11 @@ class MainWindow(QMainWindow):
             return
         title = get_app_name(self.lang)
         text = t("update_installed_toast", self.lang).format(app=title, version=VERSION)
+        self._notification_click = None
         self.notifier.notify(title, text)
 
     def _bring_to_front(self):
-        self.showNormal()
+        self.show_restored()
         self.raise_()
         self.activateWindow()
 
@@ -2130,6 +2365,8 @@ class MainWindow(QMainWindow):
         if self._quitting:
             return
         self._quitting = True
+        self._save_geometry()
+        self._taskbar.clear()
         self._hide_tray()
         self.hide()  # bekleme sırasında pencere donmuş görünmesin
         self._shutdown_background()
@@ -2141,6 +2378,15 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.quit()
+
+    def _native_hwnd(self) -> int:
+        """Görev çubuğu için pencere tutamacı; yalnızca gerçek Windows platformunda ve pencere oluşturulmuşsa."""
+        if QGuiApplication.platformName() != "windows" or self.windowHandle() is None:
+            return 0
+        try:
+            return int(self.winId())
+        except Exception:
+            return 0
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2158,6 +2404,8 @@ class MainWindow(QMainWindow):
         from PyQt6.QtGui import QGuiApplication
         gui_app = QGuiApplication.instance()
         saving_session = bool(gui_app is not None and gui_app.isSavingSession())  # Windows kapanıyor
+        if not self._quitting:
+            _call_if_present(self, "_save_geometry")  # tepsiye gizlerken de: sonraki açılış aynı yerde
         if (
             not self._quitting and not saving_session
             and self.tray and TrayIcon.isSystemTrayAvailable()
@@ -2167,6 +2415,7 @@ class MainWindow(QMainWindow):
             return
         already = self._quitting
         self._quitting = True
+        _call_if_present(getattr(self, "_taskbar", None), "clear")
         self._hide_tray()
         if not already:
             self.hide()

@@ -11,6 +11,7 @@ tahmin edilir; o tür başlayınca kendi hızıyla düzelir.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from .image_compressor import IMAGE_EXTS
@@ -125,3 +126,49 @@ class JobEta:
                 return None
             seconds += left / rates[k]
         return seconds
+
+
+class EtaSmoother:
+    """Kalan süreyi yumuşatır: ham tahmin her ilerleme sinyalinde zıplamasın ("3 dk" → "5 dk" → "2 dk").
+
+    Kalan sürenin kendisi değil tahmini BİTİŞ ANI üstel hareketli ortalamayla (EMA) yumuşatılır; böylece tahmin
+    tutarlıyken gösterilen süre gerçek zamanla birlikte geri sayar, gecikmez. Ağırlık zamana bağlıdır
+    (`tau` saniyelik zaman sabiti): sinyal sıklığı ne olursa olsun aynı yumuşaklık.
+    """
+
+    def __init__(self, tau: float = 6.0):
+        self.tau = max(0.001, float(tau))
+        self._end: float | None = None
+        self._last: float | None = None
+
+    def reset(self) -> None:
+        self._end = self._last = None
+
+    def update(self, remaining: float | None, now: float) -> float | None:
+        """Ham kalan saniyeyi ekler, yumuşatılmış kalan saniyeyi döndürür (ham None ise son tahmin sürer)."""
+        if remaining is not None:
+            end = now + max(0.0, float(remaining))
+            if self._end is None or self._last is None:
+                self._end = end
+            else:
+                dt = max(0.0, now - self._last)
+                alpha = 1.0 - math.exp(-dt / self.tau) if dt > 0 else 0.0
+                self._end += alpha * (end - self._end)
+            self._last = now
+        if self._end is None:
+            return None
+        return max(0.0, self._end - now)
+
+
+def round_eta(seconds: float) -> int:
+    """Kalan süreyi okunur adımlara yuvarlar: <1 dk → 5 sn, <10 dk → 10 sn, <1 sa → 1 dk, üstü → 5 dk."""
+    seconds = max(0.0, float(seconds))
+    if seconds < 60:
+        step = 5
+    elif seconds < 600:
+        step = 10
+    elif seconds < 3600:
+        step = 60
+    else:
+        step = 300
+    return max(step if seconds > 0 else 0, int(round(seconds / step)) * step)

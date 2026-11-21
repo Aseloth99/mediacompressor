@@ -57,7 +57,7 @@ class QueueUxTest(unittest.TestCase):
             self.app.processEvents()
             self.assertEqual(w.queue.rowCount(), 1)
             self.assertTrue(w.start_btn.isEnabled())
-            self.assertEqual(w.start_btn.toolTip(), "")
+            self.assertIn("Ctrl+Enter", w.start_btn.toolTip(), "kısayol ipucu")
             self.assertTrue(w.queue_summary.isVisible())
             self.assertIn("1", w.queue_summary.text())
             self.assertNotEqual(w.queue.size_text_of(w.queue.paths()[0]), "—", "kaynak boyutu hemen görünmeli")

@@ -1,7 +1,7 @@
 """Uzaktan duyuru satırı: yalnızca sunucu bir duyuru verdiyse ve kullanıcı kapatmadıysa görünür.
 
 Kasten stil kuralı koymaz: yazı rengi uygulamanın o anki temasından miras alınır (iki temada da okunur),
-zemin yarı saydam gridir. Duyuru düz metin olarak gösterilir (HTML yorumlanmaz); satıra tıklamak
+zemin yarı saydam gridir. Açılıp kapanırken kısa bir kayma/solma animasyonu vardır. Duyuru düz metin olarak gösterilir (HTML yorumlanmaz); satıra tıklamak
 (güvenilir bir adres verildiyse) tarayıcıda açar, ✕ kapatır.
 """
 
@@ -12,6 +12,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy
 
 from ..utils.remote_notice import Notice, is_trusted_url
+from . import anim
 
 
 class NoticeBar(QFrame):
@@ -50,14 +51,15 @@ class NoticeBar(QFrame):
             "QFrame#notice_bar { background: rgba(127, 127, 127, 38); border-radius: 8px;"
             f" border-left: 3px solid {edge}; }}"
         )
-        self.show()
+        if self.isHidden() or anim.is_animating(self):  # kapanırken yeni duyuru gelirse geri açılır
+            anim.slide_in(self)  # kısa (200 ms) kayarak açılır; Windows animasyonları kapalıysa anında
 
     def current(self) -> Notice | None:
         return self._notice
 
     def dismiss(self) -> None:
         notice, self._notice = self._notice, None
-        self.hide()
+        anim.slide_out(self)
         if notice is not None:
             self.dismissed.emit(notice.id)
 

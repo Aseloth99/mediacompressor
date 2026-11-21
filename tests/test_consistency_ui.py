@@ -99,14 +99,15 @@ class TitleBarMenuTests(_Base):
         self.assertEqual([layout.itemAt(i).widget() for i in range(layout.count())], order)
         self.assertEqual(bar.file_btn.text(), "Dosya")
         actions = bar.file_btn.menu().actions()
-        self.assertEqual([a.isSeparator() for a in actions], [False, False, True, False])
+        self.assertEqual([a.isSeparator() for a in actions], [False, False, False, True, False])
         def parts(act):
             return [part.strip() for part in act.text().split("\t")]
 
         self.assertEqual(parts(actions[0]), ["Dosya Seç…", "Ctrl+O"])
         self.assertEqual(parts(actions[1]), ["Klasör Seç…", "Ctrl+Shift+O"])
-        self.assertEqual(parts(actions[3]), ["Çıkış", "Ctrl+Q"])
-        for act in (actions[0], actions[1], actions[3]):
+        self.assertEqual(parts(actions[2]), ["Çıkış Klasörünü Aç", "Ctrl+Shift+E"])
+        self.assertEqual(parts(actions[4]), ["Çıkış", "Ctrl+Q"])
+        for act in (actions[0], actions[1], actions[2], actions[4]):
             self.assertFalse(act.icon().isNull(), "vektör simge")
 
     def test_file_menu_leaves_room_between_names_and_shortcuts(self) -> None:
@@ -130,7 +131,7 @@ class TitleBarMenuTests(_Base):
         bar = self._bar("en")
         self.assertEqual(bar.file_btn.text(), "File")
         texts = [a.text().split("\t")[0] for a in bar.file_btn.menu().actions() if not a.isSeparator()]
-        self.assertEqual(texts, ["Choose Files…", "Choose Folder…", "Exit"])
+        self.assertEqual(texts, ["Choose Files…", "Choose Folder…", "Open Output Folder", "Exit"])
 
     def test_file_menu_actions_emit_their_signals(self) -> None:
         bar = self._bar()
@@ -598,6 +599,7 @@ class ChromeDialogTests(_Base):
         self._theme()
         dlg = PreviewDialog(None, 80, "2400px", None, "tr")
         self.addCleanup(dlg.deleteLater)
+        self.addCleanup(dlg.close)  # açık kalan modal pencere sonraki testlerin "boşta mı" denetimini bozuyordu
         self.assertIsNotNone(dlg._cd_max)
         dlg.show()
         dlg.toggle_maximized()
