@@ -206,7 +206,11 @@ class TrayIcon(QSystemTrayIcon):
         QTimer.singleShot(0, self.window.show_pending_update)
 
     def _show(self):
-        self.window.showNormal()
+        restore = getattr(self.window, "show_restored", None)  # büyütülmüş pencere büyütülmüş geri gelsin
+        if callable(restore):
+            restore()
+        else:
+            self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
 

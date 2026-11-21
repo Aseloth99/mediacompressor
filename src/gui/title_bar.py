@@ -10,6 +10,7 @@ from ..core.app_info import APP_NAME, VERSION
 from ..utils.locales import create_language_icon, get_app_name, language_choices, t
 from ..utils.theme_manager import ACCENTS
 from . import icons
+from .hover_fix import settle_after_menu
 
 THEME_KEYS = ("system", "dark", "light")
 TITLE_BAR_HEIGHT = 38  # tüm uygulamalarda aynı başlık çubuğu yüksekliği
@@ -99,6 +100,7 @@ class TitleBar(QFrame):
     update_clicked = pyqtSignal()       # başlıktaki ↑: bekleyen güncellemenin penceresini açar (kurmaz)
     add_files_clicked = pyqtSignal()    # Dosya > Dosya Ekle…
     add_folder_clicked = pyqtSignal()   # Dosya > Klasör Ekle…
+    open_output_clicked = pyqtSignal()  # Dosya > Çıkış Klasörünü Aç (Ctrl+Shift+E)
     exit_clicked = pyqtSignal()         # Dosya > Çıkış (gerçekten çıkar; X tepsiye gizler)
 
     def __init__(self, parent=None, icon: QIcon | None = None):
@@ -164,7 +166,7 @@ class TitleBar(QFrame):
         menu_l.setSpacing(4)
         menu_l.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter)
 
-        # İlk menü: Dosya (Dosya Ekle… · Klasör Ekle… · ayırıcı · Çıkış). Kısayol metni yalnızca bilgidir
+        # İlk menü: Dosya (Dosya Ekle… · Klasör Ekle… · Çıkış Klasörünü Aç · ayırıcı · Çıkış). Kısayol metni yalnızca bilgidir
         # (sekmeyle sağa hizalanır); kısayolları ana pencere bağlar, böylece "belirsiz kısayol" çakışması olmaz.
         self.file_btn = self._menu_button("Dosya")
         file_menu = QMenu(self.file_btn)
@@ -174,11 +176,15 @@ class TitleBar(QFrame):
         self.add_folder_action = QAction("", file_menu)
         self.add_folder_action.triggered.connect(lambda *_: self.add_folder_clicked.emit())
         file_menu.addAction(self.add_folder_action)
+        self.open_output_action = QAction("", file_menu)
+        self.open_output_action.triggered.connect(lambda *_: self.open_output_clicked.emit())
+        file_menu.addAction(self.open_output_action)
         file_menu.addSeparator()
         self.exit_action = QAction("", file_menu)
         self.exit_action.triggered.connect(lambda *_: self.exit_clicked.emit())
         file_menu.addAction(self.exit_action)
         self.file_btn.setMenu(file_menu)
+        settle_after_menu(self.file_btn, file_menu)  # dışarı tıklanıp kapanınca hover kalmasın
         menu_l.addWidget(self.file_btn)
 
         self.theme_btn = self._menu_button("Tema")
@@ -194,6 +200,7 @@ class TitleBar(QFrame):
             self._theme_actions[key] = act
             act.triggered.connect(lambda checked, k=key: self.theme_selected.emit(k) if checked else None)
         self.theme_btn.setMenu(theme_menu)
+        settle_after_menu(self.theme_btn, theme_menu)  # dışarı tıklanıp kapanınca hover kalmasın
         menu_l.addWidget(self.theme_btn)
 
         self.lang_btn = self._menu_button("Dil")
@@ -209,6 +216,7 @@ class TitleBar(QFrame):
             self._lang_actions[code] = act
             act.triggered.connect(lambda checked, c=code: self.language_selected.emit(c) if checked else None)
         self.lang_btn.setMenu(lang_menu)
+        settle_after_menu(self.lang_btn, lang_menu)  # dışarı tıklanıp kapanınca hover kalmasın
         menu_l.addWidget(self.lang_btn)
 
         self.color_btn = self._menu_button("Renk")
@@ -224,6 +232,7 @@ class TitleBar(QFrame):
             self._accent_actions[key] = act
             act.triggered.connect(lambda checked, k=key: self.accent_selected.emit(k) if checked else None)
         self.color_btn.setMenu(color_menu)
+        settle_after_menu(self.color_btn, color_menu)  # dışarı tıklanıp kapanınca hover kalmasın
         menu_l.addWidget(self.color_btn)
 
         self.settings_btn = self._menu_button("Ayarlar")
@@ -304,6 +313,7 @@ class TitleBar(QFrame):
         self.file_btn.setIcon(icons.file_add_icon(color))
         self.add_files_action.setIcon(icons.file_add_icon(color))
         self.add_folder_action.setIcon(icons.folder_add_icon(color))
+        self.open_output_action.setIcon(icons.folder_icon(color))
         self.exit_action.setIcon(icons.door_exit_icon(self._danger_color))
         self.theme_btn.setIcon(icons.theme_system_icon())  # tema simgeleri vurguya göre değil, nötr/anlamsal renkte
         self.lang_btn.setIcon(_globe_icon(color))
@@ -356,6 +366,7 @@ class TitleBar(QFrame):
         self.file_btn.setText(t("menu_file", lang))
         self.add_files_action.setText(menu_text(t("menu_add_files", lang), "Ctrl+O"))
         self.add_folder_action.setText(menu_text(t("menu_add_folder", lang), "Ctrl+Shift+O"))
+        self.open_output_action.setText(menu_text(t("menu_open_output", lang), "Ctrl+Shift+E"))
         self.exit_action.setText(menu_text(t("tray_quit", lang), "Ctrl+Q"))
         self.theme_btn.setText(t("theme", lang).rstrip(":"))
         self.lang_btn.setText(t("language", lang).rstrip(":"))

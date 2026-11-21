@@ -27,6 +27,7 @@ from ..utils.helpers import format_bytes, format_duration
 from ..utils.locales import t
 from ..utils.timecode import clock
 from . import icons
+from .hover_fix import settle_hover
 
 # Durum -> palet anahtarı (metin rengi); palet gelene kadar tema fark etmeden okunabilir sabitler.
 STATUS_COLOR_KEYS = {
@@ -853,6 +854,7 @@ class QueuePanel(QListWidget):
         if not paths:
             return
         self.build_menu(paths).exec(self.viewport().mapToGlobal(pos))
+        settle_hover(self.viewport())  # menü fareyi yakalamıştı: satır üzerine gelinmiş görünümde kalmasın
 
     def build_menu(self, paths: list[str]) -> QMenu:
         """Sağ tık menüsü (seçili dosyalar için)."""

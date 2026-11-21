@@ -180,6 +180,26 @@ def format_duration(seconds: float, lang: str | None = None) -> str:
     return f"{sec} {s_unit}"
 
 
+def format_eta(seconds: float, lang: str | None = None) -> str:
+    """Kalan süre metni: okunur adımlara yuvarlanır ve gereksiz birim yazılmaz
+    ("45 sn", "3 dk 20 sn", "12 dk", "1 sa 25 dk"); geçen süre için format_duration kullanılır."""
+    from ..core.eta import round_eta
+    from .locales import get_system_language, t
+
+    if lang is None:
+        lang = get_system_language()
+    total = round_eta(seconds)
+    hours, rem = divmod(total, 3600)
+    minutes, sec = divmod(rem, 60)
+    if hours:
+        return f"{hours} {t('dur_h', lang)} {minutes} {t('dur_m', lang)}" if minutes else f"{hours} {t('dur_h', lang)}"
+    if minutes >= 10 or (minutes and not sec):
+        return f"{minutes} {t('dur_m', lang)}"
+    if minutes:
+        return f"{minutes} {t('dur_m', lang)} {sec} {t('dur_s', lang)}"
+    return f"{sec} {t('dur_s', lang)}"
+
+
 def _xdg_user_dir(name: str, env: Mapping[str, str], home: str) -> str | None:
     """``~/.config/user-dirs.dirs`` içindeki ``XDG_<NAME>_DIR`` değeri (varsa ve klasörse)."""
     config_home = _abs_env_dir("XDG_CONFIG_HOME", env) or os.path.join(home, ".config")

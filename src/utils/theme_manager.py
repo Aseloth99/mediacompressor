@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import tempfile
+from contextlib import contextmanager
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -159,7 +161,41 @@ def _with_accent(base: dict, accent_key: str, dark: bool) -> dict:
     palette["scroll"] = _mix(base["text"], base["sunken"], 0.28)
     palette["border_focus"] = accent
     palette["success"] = accent
+    # Toast (pencere içi kısa bildirim) temanın tersi renklerde: kuyruk satırlarının üstünde her iki temada da seçilir.
+    toast_bg = "#ececec" if dark else "#2b2b2b"
+    toast_text = "#1a1a1a" if dark else "#f2f2f2"
+    palette["toast_bg"] = toast_bg
+    palette["toast_text"] = toast_text
+    palette["toast_muted"] = _mix(toast_text, toast_bg, 0.68)
+    palette["toast_border"] = _mix(toast_text, toast_bg, 0.14)
+    palette["toast_hover"] = _mix(toast_text, toast_bg, 0.10)
+    palette["toast_accent"] = readable_on(accent, toast_bg)
     return palette
+
+
+def _luminance(color: str) -> float:
+    def lin(v: int) -> float:
+        c = v / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = _hex_rgb(color)
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    la, lb = _luminance(a), _luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def readable_on(color: str, background: str, minimum: float = 4.5) -> str:
+    """`color`'ı `background` üstünde en az `minimum` kontrastla okunana dek koyulaştırır/açar (tonu korunur)."""
+    toward = "#000000" if _luminance(background) > 0.4 else "#ffffff"
+    result = color
+    for step in range(1, 21):
+        if contrast_ratio(result, background) >= minimum:
+            break
+        result = _mix(toward, color, step / 20)
+    return result
 
 
 def _mix(color: str, base: str, amount: float) -> str:
@@ -737,6 +773,52 @@ def _build(p: dict) -> str:
             min-height: 34px;
             padding: 0px 16px;
         }}
+        /* dosya sürüklenirken: düz vurgu kenarlığı ve yumuşak vurgu zemini ("buraya bırakın") */
+        QFrame#DropZone[dragActive="true"] {{
+            border: 2.5px solid {p['accent']};
+            margin: 1px;
+            background-color: {p['accent_soft']};
+        }}
+        QFrame#DropZone[dragActive="true"] QLabel#hint_label {{
+            color: {p['accent_text']};
+            font-weight: 600;
+        }}
+        /* pencere içi toast: temanın tersi renkler (koyu temada açık kutu, açık temada koyu kutu) */
+        QFrame#toast {{
+            background-color: {p['toast_bg']};
+            border: 1px solid {p['toast_border']};
+            border-radius: 10px;
+        }}
+        QFrame#toast QLabel#toast_text {{
+            color: {p['toast_text']};
+            background: transparent;
+            margin-right: 0px;
+        }}
+        QFrame#toast QPushButton#toast_action {{
+            background: transparent;
+            color: {p['toast_accent']};
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            padding: 4px 10px;
+            min-height: 0px;
+        }}
+        QFrame#toast QPushButton#toast_action:hover {{
+            background: {p['toast_hover']};
+        }}
+        QFrame#toast QPushButton#toast_close {{
+            background: transparent;
+            color: {p['toast_muted']};
+            border: none;
+            border-radius: 12px;
+            padding: 0px;
+            min-height: 0px;
+            font-size: 9pt;
+        }}
+        QFrame#toast QPushButton#toast_close:hover {{
+            background: {p['toast_hover']};
+            color: {p['toast_text']};
+        }}
         QFrame#left_panel, QFrame#right_panel, QFrame#action_bar {{
             background-color: {p['sunken']};
             border: 1px solid {p['border']};
@@ -953,6 +1035,21 @@ def fit_text_widgets(root) -> None:
             box.setMinimumHeight(needed)
 
 
+@contextmanager
+def _no_gc():
+    """Qt tüm widget'ları dolaşırken (stil / stil sayfası değişimi) Python çöp toplayıcısı çalışmasın.
+
+    Döngüsel başvurulu, kapanmış bir pencere tam o anda toplanırsa Qt silinmiş bir widget'a dokunup çöker.
+    """
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
 class ThemeManager(QObject):
     theme_changed = pyqtSignal(str)
 
@@ -960,7 +1057,8 @@ class ThemeManager(QObject):
         super().__init__()
         self.app = app
         if "Fusion" in QStyleFactory.keys():
-            self.app.setStyle("Fusion")
+            with _no_gc():
+                self.app.setStyle("Fusion")
         font = QFont("Segoe UI", 10)
         font.setHintingPreference(QFont.HintingPreference.PreferVerticalHinting)
         font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
@@ -974,7 +1072,8 @@ class ThemeManager(QObject):
         self.current_theme = theme_name
         dark = "dark" in theme_name
         palette = _with_accent(DARK if dark else LIGHT, self.accent_key, dark)
-        self.app.setStyleSheet(_build(palette))
+        with _no_gc():
+            self.app.setStyleSheet(_build(palette))
         for widget in self.app.topLevelWidgets():
             fit_text_widgets(widget)
         self.theme_changed.emit(theme_name)

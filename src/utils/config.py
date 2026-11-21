@@ -64,6 +64,7 @@ DEFAULTS: dict[str, Any] = {
     "recent_folders": [],
     "open_output_when_done": False,
     "left_panel_collapsed": False,  # kuyruk başlığındaki düğmeyle gizlenen ayar paneli
+    "window_geometry": None,  # {"x","y","w","h","maximized"}: son pencere konumu/boyutu (ekrana sığdırılarak geri yüklenir)
 }
 
 

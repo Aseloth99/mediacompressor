@@ -795,9 +795,17 @@ class FrameTests(Base):
         self.assertEqual(accent.name(), MC_DARK["accent"].lower())  # 2 px vurgu üst çizgisi
 
     def test_application_wide_stylesheet_does_not_leak_into_the_box(self) -> None:
-        app.setStyleSheet("QWidget { background-color: #ff0000; color: #00ff00; } QDialog { background: #ff0000; }"
-                          " QPushButton { background-color: #ff00ff; }")
-        self.addCleanup(lambda: app.setStyleSheet(""))
+        # Uygulama geneli stil tüm pencereleri yeniden cilalar; bu sırada çöp toplayıcı ölü pencereleri silerse
+        # Qt erişim ihlaliyle çöker (uygulamadaki tema değişimiyle aynı neden) -> GC bu çağrılar boyunca kapalı.
+        from src.utils.theme_manager import _no_gc
+
+        def set_app_style(css: str) -> None:
+            with _no_gc():
+                app.setStyleSheet(css)
+
+        set_app_style("QWidget { background-color: #ff0000; color: #00ff00; } QDialog { background: #ff0000; }"
+                      " QPushButton { background-color: #ff00ff; }")
+        self.addCleanup(lambda: set_app_style(""))
         box = self.box("Gövde")
         box.prepare()
         img = box.grab().toImage()
