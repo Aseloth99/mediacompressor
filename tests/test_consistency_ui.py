@@ -92,6 +92,17 @@ class TitleBarMenuTests(_Base):
         self.assertEqual(TITLE_BAR_HEIGHT, 38)
         self.assertEqual(self._bar().height(), 38)
 
+    def test_file_menu_rows_use_the_colored_semantic_icons(self) -> None:
+        from src.gui import icons
+
+        bar = self._bar()
+        bar.apply_palette({"accent_text": "#E91E63", "danger": "#d32f2f", "text": "#e8e8e8"})
+        for act, name in ((bar.add_files_action, "file_add"), (bar.add_folder_action, "folder_add"),
+                          (bar.open_output_action, "folder"), (bar.exit_action, "exit")):
+            self.assertTrue(_same_icon(act.icon(), icons.menu_icon(name)), name)
+        # başlık düğmesi tek renk kalır (vurgu)
+        self.assertIn("#e91e63", _top_colors(bar.file_btn.icon()))
+
     def test_file_is_the_first_menu_with_add_files_add_folder_separator_exit(self) -> None:
         bar = self._bar()
         order = [bar.file_btn, bar.theme_btn, bar.lang_btn, bar.color_btn, bar.settings_btn]
@@ -304,6 +315,19 @@ class TrayMenuTests(_Base):
         self.assertEqual(tray._accent(), "#E91E63")
         self.assertFalse(tray.settings_action.icon().isNull())
         self.assertFalse(tray.theme_menu.icon().isNull())
+
+    def test_rows_use_the_colored_semantic_icons(self) -> None:
+        from src.gui import icons
+
+        window, tray = self._tray()
+        tray.menu.aboutToShow.emit()
+        for item, name in ((tray.update_action, "update"), (tray.show_action, "view"), (tray.settings_action, "settings"),
+                           (tray.lang_menu, "globe"), (tray.quit_action, "exit")):
+            self.assertTrue(_same_icon(item.icon(), icons.menu_icon(name)), name)
+        window.shown = True   # "Gizle": aynı çivit tonda üstü çizili göz
+        tray.menu.aboutToShow.emit()
+        self.assertIn(icons.MENU_PALETTE["indigo"], _top_colors(tray.show_action.icon()))
+        self.assertFalse(_same_icon(tray.show_action.icon(), icons.menu_icon("view")))
 
 
 # --------------------------------------------------------------------------------------------------- ayarlar
@@ -621,7 +645,7 @@ class ChromeDialogTests(_Base):
             def availableGeometry(self):
                 return self._rect
 
-        small, large = QRect(0, 0, 1366, 728), QRect(0, 0, 2560, 1400)
+        small, large = QRect(0, 0, 1366, 480), QRect(0, 0, 2560, 1400)  # ayarlar sekmeli: en uzun sayfa 728'e sığar
         for make in (lambda: SettingsDialog(_config(), "", "", None, theme=theme),
                      lambda: AdvancedDialog(lambda l: [("h264", "H.264")], lambda l: [("auto", "Otomatik")], None, "tr")):
             dlg = make()
@@ -629,7 +653,7 @@ class ChromeDialogTests(_Base):
             natural = dlg.sizeHint().height()
             with mock.patch.object(ChromeDialog, "_screen", lambda self, r=small: _Screen(r)):
                 dlg._prepare_geometry()
-            self.assertLessEqual(dlg.height(), 728 - 16, type(dlg).__name__)
+            self.assertLessEqual(dlg.height(), 480 - 16, type(dlg).__name__)
             self.assertLess(dlg.height(), natural, "ekrandan uzun içerik kısaltılır ve kaydırılır")
             self.assertIsNotNone(dlg._cd_scroll)
             dlg2 = make()
@@ -680,6 +704,13 @@ class MessageBoxWiringTests(WindowCase):
             self.assertEqual(len(rows), 6, [a.text() for a in rows])
             for act in rows:
                 self.assertFalse(act.icon().isNull(), act.text())
+            # renkli anlam simgeleri (Lumina sağ tık menüsüyle aynı)
+            from src.gui import icons
+
+            expected = {"trash": rows[0], "view": by_text["Canlı Önizleme / Karşılaştır"], "trim": by_text["Kırp…"],
+                        "adjust": rows[3], "folder": rows[4], "open_with": rows[5]}
+            for name, act in expected.items():
+                self.assertTrue(_same_icon(act.icon(), icons.menu_icon(name)), (name, act.text()))
         self.assertFalse(win.preview_btn.icon().isNull())
 
     def test_percent_follows_the_language(self) -> None:
@@ -741,6 +772,182 @@ class ScrollBarStyleTests(unittest.TestCase):
             self.assertNotEqual(handle.group(1), p["accent"])
             self.assertEqual(handle.group(1), p["scroll"])
             self.assertIn(f"QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {{ background: {p['accent']}; }}", sheet)
+
+    def test_disabled_menu_rows_are_muted(self) -> None:
+        """Pasif menü satırı (ör. düzenlenemeyen dosyada Kırp) soluk yazılır, yalnızca simgesi değil (FlexiKey/TransferTCP ile aynı)."""
+        from src.utils import theme_manager as tm
+
+        for base, dark in ((tm.DARK, True), (tm.LIGHT, False)):
+            p = tm._with_accent(base, "cyan", dark)
+            sheet = re.sub(r"\s+", " ", tm._build(p))
+            self.assertIn(f"QMenu::item:disabled {{ color: {p['text_muted']};", sheet)
+            self.assertNotEqual(p["text_muted"], p["text"])
+
+
+class CheckboxStyleTests(unittest.TestCase):
+    """Onay kutusu FlexiKey/TransferTCP/Lumina ile aynı: 18 px kutu, 5 px köşe, 1 px kenar, seçiliyken vurgu dolgu +
+    4x çizilmiş beyaz tik, pasif+seçiliyken gri dolgu + soluk tik (22 Kasım 2026)."""
+
+    @staticmethod
+    def _rule(sheet: str, selector: str) -> str:
+        match = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", sheet)
+        assert match, selector
+        return " ".join(match.group(1).split())
+
+    def test_states_use_the_shared_geometry_and_the_chosen_accent(self) -> None:
+        from src.utils import theme_manager as tm
+
+        for base, dark, accent, fill, border in ((tm.DARK, True, "violet", "#262626", "#454545"),
+                                                 (tm.LIGHT, False, "rose", "#ececec", "#b0b0b0")):
+            p = tm._with_accent(base, accent, dark)
+            sheet = tm._build(p)
+            indicator = self._rule(sheet, "QCheckBox::indicator")
+            for decl in ("width: 18px;", "height: 18px;", "border-radius: 5px;", f"background-color: {fill};",
+                         f"border: 1px solid {border};"):
+                self.assertIn(decl, indicator)
+            self.assertIn(f"border-color: {p['accent']};", self._rule(sheet, "QCheckBox::indicator:unchecked:hover"))
+            checked = self._rule(sheet, "QCheckBox::indicator:checked")
+            self.assertIn(f"background-color: {tm.ACCENTS[accent]['accent2']};", checked)
+            self.assertRegex(checked, r'image: url\("[^"]*ms_check_ffffff_x4\.png"\)')
+            disabled = self._rule(sheet, "QCheckBox::indicator:checked:disabled")
+            self.assertIn(f"background-color: {border};", disabled)
+            self.assertIn(f"ms_check_{p['text_muted'].lstrip('#').lower()}_x4.png", disabled)
+            # aynı özgüllük: pasif kuralları üzerine gelme kurallarından SONRA gelir
+            self.assertLess(sheet.index("QCheckBox::indicator:checked:hover"),
+                            sheet.index("QCheckBox::indicator:unchecked:disabled"))
+
+    def test_tick_is_drawn_at_four_times_the_box(self) -> None:
+        from PyQt6.QtGui import QImage
+
+        from src.utils import theme_manager as tm
+
+        img = QImage(tm._check_url("#ffffff"))
+        self.assertEqual((img.width(), img.height()), (64, 64))
+        self.assertEqual(img.pixelColor(24, 44).name(), "#ffffff")  # (6, 11) köşesi x4
+        self.assertEqual(img.pixelColor(2, 2).alpha(), 0)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Ayarlar iskeleti (Lumina ile aynı): solda renkli simgeli sekmeler; seçili sekme vurgu tonlu zemin + okunur vurgu
+# yazı + solda 3 px vurgu çizgisi. Menü satırlarında renkli anlam simgeleri (aynı anlam her uygulamada aynı renk).
+# ---------------------------------------------------------------------------------------------------------------
+def _rgb(color: str) -> tuple:
+    h = color.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _lumina_mix(a: str, b: str, amount: float) -> str:
+    (ra, ga, ba), (rb, gb, bb) = _rgb(a), _rgb(b)
+    return "#" + "".join(f"{max(0, min(255, round(x + (y - x) * amount))):02x}" for x, y in ((ra, rb), (ga, gb), (ba, bb)))
+
+
+def _lumina_contrast(a: str, b: str) -> float:
+    def lum(color):
+        def lin(v):
+            s = v / 255.0
+            return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+
+        r, g, b = (lin(v) for v in _rgb(color))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    la, lb = lum(a), lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _close(a: str, b: str, tolerance: int = 1) -> bool:
+    return all(abs(x - y) <= tolerance for x, y in zip(_rgb(a), _rgb(b)))
+
+
+def _same_icon(a, b, size: int = 32) -> bool:
+    return a.pixmap(size, size).toImage() == b.pixmap(size, size).toImage()
+
+
+def _top_colors(icon, size: int = 32, count: int = 3) -> list:
+    from collections import Counter
+
+    img = icon.pixmap(size, size).toImage()
+    seen = Counter(img.pixelColor(x, y).name() for x in range(size) for y in range(size)
+                   if img.pixelColor(x, y).alpha() == 255)
+    return [name for name, _ in seen.most_common(count)]
+
+
+class SettingsNavTests(_Base):
+    def test_sidebar_has_checkable_nav_buttons_with_colored_icons(self) -> None:
+        from src.gui import icons
+
+        ThemeManager(self.app).apply_from_setting("dark")
+        dlg = SettingsDialog(_config(language="tr"), "", "", None)
+        self.addCleanup(dlg.deleteLater)
+        self.assertEqual(dlg.sidebar.objectName(), "sidebar")
+        self.assertEqual([b.text() for b in dlg.nav_buttons], ["Genel", "Güncellemeler"])
+        self.assertEqual(dlg.stack.count(), 2)
+        for btn, name in zip(dlg.nav_buttons, ("settings", "update")):
+            self.assertEqual(btn.objectName(), "nav_btn")
+            self.assertTrue(btn.isCheckable() and btn.autoExclusive())
+            btn.ensurePolished()   # stil sayfası uygulandıktan sonra da 38 px (QSS min-height sabit boyu ezmesin)
+            self.assertEqual((btn.minimumHeight(), btn.maximumHeight()), (38, 38))
+            self.assertTrue(_same_icon(btn.icon(), icons.menu_icon(name)), name)
+        self.assertEqual([b.isChecked() for b in dlg.nav_buttons], [True, False])
+        dlg.nav_buttons[1].click()
+        self.assertEqual(dlg.stack.currentIndex(), 1)
+        self.assertEqual([b.isChecked() for b in dlg.nav_buttons], [False, True])
+        self.assertTrue(dlg.stack.widget(0).isAncestorOf(dlg.theme_combo))
+        self.assertTrue(dlg.stack.widget(0).isAncestorOf(dlg.start_win))
+        self.assertTrue(dlg.stack.widget(1).isAncestorOf(dlg.auto_update))
+        self.assertTrue(dlg.stack.widget(1).isAncestorOf(dlg.update_status))
+        self.assertGreaterEqual(dlg.sidebar.width(), 150)
+
+    def test_nav_rules_match_lumina(self) -> None:
+        from src.utils import theme_manager as tm
+
+        for base, dark, accent in ((tm.DARK, True, "violet"), (tm.LIGHT, False, "rose"),
+                                   (tm.DARK, True, "yellow"), (tm.LIGHT, False, "cyan")):
+            p = tm._with_accent(base, accent, dark)
+            sheet = tm._build(p)
+            rule = CheckboxStyleTests._rule
+            nav = rule(sheet, "QPushButton#nav_btn")
+            for decl in ("padding-left: 7px;", "border: none;", "border-left: 3px solid transparent;",
+                         "border-radius: 6px;", f"color: {p['text_muted']};", "min-height: 38px;", "max-height: 38px;"):
+                self.assertIn(decl, nav)
+            checked = rule(sheet, "QPushButton#nav_btn:checked")
+            tint = re.search(r"background-color: (#[0-9a-fA-F]{6});", checked).group(1)
+            ink = re.search(r"(?<!-)color: (#[0-9a-fA-F]{6});", checked).group(1)
+            self.assertTrue(_close(tint, _lumina_mix(p["surface"], p["accent"], 0.16 if dark else 0.13)), (tint, accent))
+            self.assertGreaterEqual(_lumina_contrast(ink, tint), 4.5, (ink, tint))
+            wanted = p["accent_hi"] if dark else p["accent2"]
+            if _lumina_contrast(wanted, tint) >= 4.5:
+                self.assertEqual(ink.lower(), wanted.lower())
+            self.assertIn(f"border-left: 3px solid {p['accent']};", checked)
+            self.assertIn("font-weight: 700;", checked)
+            self.assertLess(sheet.index("QPushButton#nav_btn:hover"), sheet.index("QPushButton#nav_btn:checked"))
+
+
+class MenuIconTableTests(_Base):
+    """Renk anlamla gelir (Lumina `MENU_PALETTE`): ayarlar mor, güncelle zümrüt, çıkış/sil kırmızı, göz/kılavuz çivit,
+    klasör amber; mavi/gök aile (bilgi, küre, kopya, belge) seçili vurguyu izler."""
+
+    FIXED = {"settings": "#8b5cf6", "update": "#10b981", "exit": "#ef4444", "view": "#7c7ff5", "guide": "#7c7ff5",
+             "trash": "#ef4444", "folder": "#fcd34d", "backup": "#d97706", "add": "#22c55e", "trim": "#22c55e",
+             "adjust": "#f97316", "send": "#14b8a6", "network": "#06b6d4", "open_with": "#a855f7",
+             "rename": "#f59e0b", "star": "#eab308", "bolt": "#eab308", "pause": "#f59e0b", "play": "#22c55e"}
+
+    def test_same_meaning_same_color(self) -> None:
+        from src.gui import icons
+
+        self.assertLessEqual(set(self.FIXED), set(icons.MENU_ICON_NAMES))
+        for name, color in self.FIXED.items():
+            self.assertIn(color, _top_colors(icons.menu_icon(name)), name)
+
+    def test_blue_family_follows_the_accent(self) -> None:
+        from src.gui import icons
+        from src.utils import theme_manager as tm
+
+        theme = ThemeManager(self.app)
+        self.addCleanup(theme.apply_from_setting, "dark", tm.DEFAULT_ACCENT)
+        for key in ("rose", "green"):
+            theme.apply_from_setting("dark", key)
+            self.assertEqual(_top_colors(icons.menu_icon("info"), count=1), [tm.ACCENTS[key]["accent"].lower()], key)
+            self.assertEqual(_top_colors(icons.menu_icon("settings"), count=1), ["#8b5cf6"], "mor dişli vurguyu izlemez")
 
 
 if __name__ == "__main__":

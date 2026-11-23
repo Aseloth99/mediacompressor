@@ -311,10 +311,12 @@ class TitleBar(QFrame):
             self._danger_color = palette.get("danger") or self._danger_color
         color = self._icon_color
         self.file_btn.setIcon(icons.file_add_icon(color))
-        self.add_files_action.setIcon(icons.file_add_icon(color))
-        self.add_folder_action.setIcon(icons.folder_add_icon(color))
-        self.open_output_action.setIcon(icons.folder_icon(color))
-        self.exit_action.setIcon(icons.door_exit_icon(self._danger_color))
+        # menü satırları: renkli anlam simgeleri (Lumina ⋯ menüsüyle aynı; mavi/gök aileden olanlar vurguyu izler).
+        # Başlık çubuğundaki düğmeler tek renk kalır.
+        self.add_files_action.setIcon(icons.menu_icon("file_add"))
+        self.add_folder_action.setIcon(icons.menu_icon("folder_add"))
+        self.open_output_action.setIcon(icons.menu_icon("folder"))
+        self.exit_action.setIcon(icons.menu_icon("exit"))
         self.theme_btn.setIcon(icons.theme_system_icon())  # tema simgeleri vurguya göre değil, nötr/anlamsal renkte
         self.lang_btn.setIcon(_globe_icon(color))
         self.settings_btn.setIcon(icons.gear_icon(color))

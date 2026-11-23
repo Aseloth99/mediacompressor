@@ -413,7 +413,6 @@ class QueuePanel(QListWidget):
         self._status_colors = {
             status: QColor(str(palette[key])) for status, key in STATUS_COLOR_KEYS.items() if palette.get(key)
         }
-        self._menu_icon_color = str(palette.get("accent_text") or palette.get("accent") or icons.DEFAULT_ICON_COLOR)
         light = QColor(str(palette.get("raised", "#2a2a2a"))).lightness() > 128
         accent = QColor(str(palette.get("accent", "#00ACC1")))
         select = QColor(accent)
@@ -860,35 +859,36 @@ class QueuePanel(QListWidget):
         """Sağ tık menüsü (seçili dosyalar için)."""
         menu = QMenu(self)
         n = len(paths)
-        # Her satırın simgesi var (yalnızca ikisinde olunca metinler iki farklı hizada başlıyordu).
-        icon_color = getattr(self, "_menu_icon_color", icons.DEFAULT_ICON_COLOR)  # menü simgeleri vurguya uyar
+        # Her satırın simgesi var (yalnızca ikisinde olunca metinler iki farklı hizada başlıyordu). Renkli anlam simgeleri
+        # (Lumina sağ tık menüsüyle aynı): kaldır kırmızı çöp, önizle çivit göz, kırp yeşil makas, ayarlar turuncu
+        # kaydırıcılar, klasörde göster amber klasör, aç mor dışarı-aç.
         if not self._locked:
             rem_text = (
                 t("queue_remove", self.lang) if n == 1
                 else t("queue_remove_n", self.lang).format(n)
             )
-            remove = QAction(icons.trash_icon(icon_color), rem_text, menu)
+            remove = QAction(icons.menu_icon("trash"), rem_text, menu)
             remove.triggered.connect(lambda: self.remove_requested.emit(paths))
             menu.addAction(remove)
             menu.addSeparator()
 
         # Önizleme hem resim hem video için (pencere videodan kare seçerek karşılaştırır).
-        preview_act = QAction(icons.eye_icon(icon_color), t("preview_btn", self.lang), menu)
+        preview_act = QAction(icons.menu_icon("view"), t("preview_btn", self.lang), menu)
         preview_act.triggered.connect(lambda: self.preview_requested.emit(paths[0]))
         menu.addAction(preview_act)
         # Kırpma tek videoya (başlangıç-bitiş her videoda farklıdır).
         if len(paths) == 1 and is_video(paths[0]):
-            trim_act = QAction(icons.scissors_icon(icon_color), t("trim_menu", self.lang), menu)
+            trim_act = QAction(icons.menu_icon("trim"), t("trim_menu", self.lang), menu)
             trim_act.setEnabled(bool(self._editable(paths)))
             trim_act.triggered.connect(lambda: self.trim_requested.emit(paths[0]))
             menu.addAction(trim_act)
-        self._override_menu(menu, paths, icons.sliders_icon(icon_color))
+        self._override_menu(menu, paths, icons.menu_icon("adjust"))
         menu.addSeparator()
 
-        reveal = QAction(icons.folder_icon(icon_color), t("reveal_in_folder", self.lang), menu)
+        reveal = QAction(icons.menu_icon("folder"), t("reveal_in_folder", self.lang), menu)
         reveal.triggered.connect(lambda: self.reveal_requested.emit(paths[0]))
         menu.addAction(reveal)
-        open_act = QAction(icons.open_external_icon(icon_color), t("open_file", self.lang), menu)
+        open_act = QAction(icons.menu_icon("open_with"), t("open_file", self.lang), menu)
         open_act.triggered.connect(lambda: self.open_requested.emit(paths[0]))
         menu.addAction(open_act)
         return menu

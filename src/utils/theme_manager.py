@@ -7,8 +7,8 @@ import os
 import tempfile
 from contextlib import contextmanager
 
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPolygonF
 from PyQt6.QtWidgets import QApplication, QStyleFactory
 
 # TransferTCP: koyu grafit + Material Blue #2196F3
@@ -32,6 +32,11 @@ DARK = {
     "success": "#2196F3",
     "warn": "#FFC107",
     "selected_text": "#ffffff",
+    # Onay kutusu (FlexiKey surface2 / border_strong / surface / border ile aynı değerler; üç uygulamada aynı kutu)
+    "chk_fill": "#262626",
+    "chk_border": "#454545",
+    "chk_hover": "#1e1e1e",
+    "chk_dis_border": "#2e2e2e",
 }
 
 # TransferTCP açık: #e0e0e0 zemin, beyaz highlight, mavi vurgu
@@ -55,6 +60,11 @@ LIGHT = {
     "success": "#2196F3",
     "warn": "#8A5300",  # amber text on the light greys: #F9A825 was only 1.5:1
     "selected_text": "#ffffff",
+    # Onay kutusu (FlexiKey surface2 / border_strong / surface / border ile aynı değerler; üç uygulamada aynı kutu)
+    "chk_fill": "#ececec",
+    "chk_border": "#b0b0b0",
+    "chk_hover": "#f5f5f5",
+    "chk_dis_border": "#c5c5c5",
 }
 
 # Vurgu renkleri — varsayılan Material Blue #2196F3
@@ -132,6 +142,11 @@ ACCENTS = {
 }
 
 DEFAULT_ACCENT = "cyan"
+_ACTIVE_ACCENT = DEFAULT_ACCENT  # en son uygulanan vurgu: renkli menü simgelerinin "blue"/"sky" ailesi bunu izler
+
+
+def active_accent() -> str:
+    return _ACTIVE_ACCENT
 
 
 def accent_label(key: str, lang: str | None = None) -> str:
@@ -224,8 +239,43 @@ def _chevron_url(color: str) -> str:
     return dest.replace("\\", "/")
 
 
+_CHECK_SCALE = 4  # 16 px kutu 64 px çizilir; Qt kutuya küçültür (%150 ölçekte tik bulanık olmasın)
+
+
+def _check_url(color: str) -> str:
+    """Onay kutusu tiki: FlexiKey/TransferTCP ile aynı çizim — 16x16 içerik kutusunda (3,8)-(6,11)-(13,4),
+    2.2 px yuvarlak uçlu kalem, 4x PNG. QImage ile çizilir (QGuiApplication gerekmez)."""
+    s = _CHECK_SCALE
+    dest = os.path.join(tempfile.gettempdir(), f"ms_check_{color.lstrip('#').lower()}_x{s}.png")
+    if not os.path.exists(dest):
+        img = QImage(16 * s, 16 * s, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(color), 2.2 * s)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawPolyline(QPolygonF([QPointF(3 * s, 8 * s), QPointF(6 * s, 11 * s), QPointF(13 * s, 4 * s)]))
+        painter.end()
+        img.save(dest, "PNG")
+    return dest.replace("\\", "/")
+
+
+def _nav_colors(p: dict) -> tuple[str, str]:
+    """Ayarlar kenar çubuğunda seçili sekme (Lumina ile aynı kural): kenar çubuğu zeminine %16 (koyu) / %13 (açık)
+    vurgu karışmış hafif zemin ve onun üstünde en az 4,5:1 okunan vurgu yazısı."""
+    dark = _luminance(p["base"]) < 0.4
+    tint = _mix(p["accent"], p["surface"], 0.16 if dark else 0.13)
+    ink = readable_on(p["accent_hi"] if dark else p["accent2"], tint, 4.5)
+    return tint, ink
+
+
 def _build(p: dict) -> str:
     chev = _chevron_url(p["text_muted"])
+    tick = _check_url("#ffffff")
+    tick_muted = _check_url(p["text_muted"])
+    nav_tint, nav_ink = _nav_colors(p)
     return f"""
         * {{
             font-family: 'Segoe UI', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
@@ -586,38 +636,81 @@ def _build(p: dict) -> str:
             color: #ffffff;
         }}
 
+        /* Ayarlar kenar çubuğu: dört uygulamada aynı iskelet (Lumina `dialog_stylesheet`). Seçili sekme vurgu tonlu
+           hafif zemin + vurgu yazı + solda 3 px vurgu çizgisi; diğerleri soluk yazı. */
+        QFrame#sidebar {{
+            background-color: {p['surface']};
+            border: 1px solid {p['border']};
+            border-radius: 8px;
+        }}
+        QPushButton#nav_btn {{
+            text-align: left;
+            padding-left: 7px;
+            color: {p['text_muted']};
+            font-size: 13px;
+            font-weight: 500;
+            background: transparent;
+            border: none;
+            border-left: 3px solid transparent;
+            border-radius: 6px;
+            min-height: 38px;
+            max-height: 38px;
+            outline: none;
+        }}
+        QPushButton#nav_btn:hover {{
+            background-color: {p['raised']};
+            color: {p['text']};
+        }}
+        QPushButton#nav_btn:pressed {{
+            border-color: transparent;  /* genel düğmenin basılı kabartma kenarları sekmede görünmesin */
+        }}
+        QPushButton#nav_btn:checked {{
+            background-color: {nav_tint};
+            color: {nav_ink};
+            border-left: 3px solid {p['accent']};
+            font-weight: 700;
+        }}
+
+        /* Onay kutusu: FlexiKey / TransferTCP / Lumina ile aynı (18 px kutu, 5 px köşe, 1 px kenar, seçiliyken vurgu
+           dolgu + beyaz tik; pasifte gri). Durum kuralları aynı özgüllükte, sıra önemli. */
         QCheckBox {{
-            spacing: 8px;
+            spacing: 10px;
             color: {p['text']};
             background: transparent;
             padding: 0px;
             min-height: 24px;
         }}
-        QCheckBox::indicator {{
-            width: 16px;
-            height: 16px;
-            border-radius: 5px;
-            background-color: {p['raised']};
-            border: 1px solid {p['border']};
-            border-top-color: {p['hi']};
-            border-left-color: {p['hi']};
-        }}
-        QCheckBox::indicator:checked {{
-            background-color: {p['accent']};
-            border: 1px solid {p['accent2']};
-            border-top-color: {p['accent_hi']};
-            border-left-color: {p['accent_hi']};
-        }}
         QCheckBox:disabled {{
             color: {p['text_muted']};
         }}
-        QCheckBox::indicator:disabled:!checked {{
-            background-color: {p['base']};
-            border-color: {p['border']};
+        QCheckBox::indicator {{
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            background-color: {p['chk_fill']};
+            border: 1px solid {p['chk_border']};
         }}
-        QCheckBox::indicator:disabled:checked {{
-            background-color: {p['text_muted']};
-            border-color: {p['text_muted']};
+        QCheckBox::indicator:unchecked:hover {{
+            background-color: {p['chk_hover']};
+            border-color: {p['accent']};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {p['accent2']};
+            border-color: {p['accent2']};
+            image: url("{tick}");
+        }}
+        QCheckBox::indicator:checked:hover {{
+            background-color: {p['accent']};
+            border-color: {p['accent']};
+        }}
+        QCheckBox::indicator:unchecked:disabled {{
+            background-color: transparent;
+            border-color: {p['chk_dis_border']};
+        }}
+        QCheckBox::indicator:checked:disabled {{
+            background-color: {p['chk_border']};
+            border-color: {p['chk_border']};
+            image: url("{tick_muted}");
         }}
 
         QSlider:horizontal {{
@@ -968,6 +1061,9 @@ def _build(p: dict) -> str:
             color: #ffffff;
             font-weight: 700;
         }}
+        QMenu::item:disabled {{
+            color: {p['text_muted']};  /* pasif satır soluk yazılır; simgesini Qt soldurur */
+        }}
         QMenu::icon {{
             padding-left: 6px;
             padding-right: 6px;
@@ -1071,6 +1167,8 @@ class ThemeManager(QObject):
             theme_name = "neumorphic_dark"
         self.current_theme = theme_name
         dark = "dark" in theme_name
+        global _ACTIVE_ACCENT
+        _ACTIVE_ACCENT = self.accent_key if self.accent_key in ACCENTS else DEFAULT_ACCENT
         palette = _with_accent(DARK if dark else LIGHT, self.accent_key, dark)
         with _no_gc():
             self.app.setStyleSheet(_build(palette))

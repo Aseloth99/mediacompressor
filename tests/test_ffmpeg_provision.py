@@ -226,6 +226,13 @@ class PrepareWorkerHintTests(unittest.TestCase):
 class WindowUiTests(unittest.TestCase):
     """MainWindow'un FFmpeg yok durumundaki paneli (sahte pencere; Qt widget'i olusturmadan)."""
 
+    def setUp(self) -> None:
+        # Sahte pencerede kayma animasyonu olmasın: dosya tek başına (QApplication'sız) koşunca animations_enabled()
+        # Windows ayarına bakıp True döner, slide_in de MagicMock'un sizeHint'iyle hesap yapmaya kalkar.
+        patcher = mock.patch("src.gui.anim.animations_enabled", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _window(self, platform):
         window = mock.MagicMock()
         window.lang = "tr"

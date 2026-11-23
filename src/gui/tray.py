@@ -25,7 +25,9 @@ class TrayIcon(QSystemTrayIcon):
         self.menu = menu
 
         # Güncelleme satırı menünün EN ÜSTÜNDE ve kalın; yalnızca güncelleme bekliyorsa görünür (altındaki ayırıcıyla birlikte).
-        self.update_action = QAction(icons.update_icon(self._accent()), "", menu)
+        # Renkli menü simgeleri (Lumina ⋯ menüsüyle aynı anlam/renk): güncelle yeşil, göster çivit göz, ayarlar mor
+        # dişli, dil vurgu küre, çıkış kırmızı kapı. Tema alt menüsü kendi tema simgesini korur.
+        self.update_action = QAction(icons.menu_icon("update"), "", menu)
         bold = self.update_action.font()
         bold.setBold(True)
         self.update_action.setFont(bold)
@@ -34,13 +36,13 @@ class TrayIcon(QSystemTrayIcon):
         self.update_separator = menu.addSeparator()
 
         # Göster/Gizle: etiket menü her açıldığında pencere durumuna göre ayarlanır
-        self.show_action = QAction(icons.eye_icon(self._accent()), t("tray_show", lang), menu)
+        self.show_action = QAction(icons.menu_icon("view"), t("tray_show", lang), menu)
         self.show_action.triggered.connect(self._toggle_window)
         menu.addAction(self.show_action)
 
         menu.addSeparator()
 
-        self.settings_action = QAction(icons.gear_icon(self._accent()), t("settings", lang), menu)
+        self.settings_action = QAction(icons.menu_icon("settings"), t("settings", lang), menu)
         self.settings_action.triggered.connect(window._open_settings)
         menu.addAction(self.settings_action)
 
@@ -58,7 +60,7 @@ class TrayIcon(QSystemTrayIcon):
             self._theme_actions[key] = act
 
         self.lang_menu = menu.addMenu(t("language", lang).rstrip(":"))
-        self.lang_menu.setIcon(icons.globe_icon(self._accent()))
+        self.lang_menu.setIcon(icons.menu_icon("globe"))
         self.lang_group = QActionGroup(menu)
         self.lang_group.setExclusive(True)
         self._lang_actions: dict[str, QAction] = {}
@@ -72,7 +74,7 @@ class TrayIcon(QSystemTrayIcon):
 
         menu.addSeparator()
 
-        self.quit_action = QAction(icons.door_exit_icon(self._danger()), t("tray_quit", lang), menu)
+        self.quit_action = QAction(icons.menu_icon("exit"), t("tray_quit", lang), menu)
         self.quit_action.triggered.connect(lambda: QTimer.singleShot(0, window.force_quit))
         menu.addAction(self.quit_action)
 
@@ -95,18 +97,16 @@ class TrayIcon(QSystemTrayIcon):
         pal = self._palette()
         return pal.get("accent_text") or pal.get("accent") or icons.DEFAULT_ICON_COLOR
 
-    def _danger(self) -> str:
-        return self._palette().get("danger") or "#ef4444"
-
     def _paint_icons(self) -> None:
-        """Seçilen vurgu değişmiş olabilir: simgeleri yeniden boya (menü her açıldığında çağrılır)."""
-        accent = self._accent()
-        self.update_action.setIcon(icons.update_icon(accent))
-        self.show_action.setIcon(icons.eye_off_icon(accent) if self._window_shown() else icons.eye_icon(accent))
-        self.settings_action.setIcon(icons.gear_icon(accent))
+        """Seçilen vurgu değişmiş olabilir: simgeleri yeniden boya (menü her açıldığında çağrılır; mavi/gök aileden
+        olanlar vurguyu izler). Gizle satırı aynı çivit tonda üstü çizili göz."""
+        self.update_action.setIcon(icons.menu_icon("update"))
+        self.show_action.setIcon(icons.eye_off_icon(icons.MENU_PALETTE["indigo"]) if self._window_shown()
+                                 else icons.menu_icon("view"))
+        self.settings_action.setIcon(icons.menu_icon("settings"))
         self.theme_menu.setIcon(icons.theme_system_icon())
-        self.lang_menu.setIcon(icons.globe_icon(accent))
-        self.quit_action.setIcon(icons.door_exit_icon(self._danger()))
+        self.lang_menu.setIcon(icons.menu_icon("globe"))
+        self.quit_action.setIcon(icons.menu_icon("exit"))
 
     # ------------------------------------------------------------------ pencere: göster/gizle
     def _window_shown(self) -> bool:

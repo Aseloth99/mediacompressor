@@ -434,6 +434,7 @@ class MainWindowUpdateIntegrationTests(ModalGuard, unittest.TestCase):
         dialog = SettingsDialog(self.w.config, "", "", self.w, updater=updater, theme=self.w.theme)
         self.addCleanup(lambda d=dialog: (d.setModal(False), d.hide(), destroy(d)))
         dialog.open()  # _open_settings gibi kalıcı (modal); exec() testi bekletirdi
+        dialog.nav_buttons[1].click()  # Güncellemeler sekmesi: düğme ve durum satırı bu sayfada
         self.app.processEvents()
         return dialog
 

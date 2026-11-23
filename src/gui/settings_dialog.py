@@ -1,9 +1,10 @@
 """Ayarlar penceresi (özel başlık çubuklu)."""
 
 from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QGridLayout, QHBoxLayout,
-    QLabel, QPushButton, QVBoxLayout,
+    QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
+    QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ..core.app_info import VERSION
@@ -36,10 +37,32 @@ class SettingsDialog(ChromeDialog):
         self._prev_theme = config.get("theme", "system")
         self._prev_accent = config.get("accent", DEFAULT_ACCENT)
         self.setWindowTitle(t("settings", self.lang))
-        self.setMinimumWidth(480)
-        layout = QVBoxLayout(self.body_host)
-        layout.setContentsMargins(22, 20, 22, 18)
-        layout.setSpacing(16)
+        self.setMinimumWidth(660)  # 480 + solda sekme çubuğu
+        outer = QVBoxLayout(self.body_host)
+        outer.setContentsMargins(22, 20, 22, 18)
+        outer.setSpacing(16)
+
+        # Dört uygulamada aynı iskelet (Lumina): solda renkli simgeli sekmeler, sağda sayfalar; altta düğme satırı
+        body_row = QHBoxLayout()
+        body_row.setContentsMargins(0, 0, 0, 0)
+        body_row.setSpacing(12)
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("sidebar")
+        side_layout = QVBoxLayout(self.sidebar)
+        side_layout.setContentsMargins(8, 8, 8, 8)
+        side_layout.setSpacing(6)
+        self.stack = QStackedWidget()
+        self.stack.setObjectName("settingsStack")
+
+        def new_page() -> QVBoxLayout:
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+            page_layout.setSpacing(16)
+            self.stack.addWidget(page)
+            return page_layout
+
+        layout = new_page()  # Genel
 
         # Sürüm yalnızca Güncellemeler bölümünde ("Yüklü sürüm: …"); başlıkta ikinci kez yazılmaz.
         header = QLabel(get_app_name(self.lang))
@@ -126,7 +149,13 @@ class SettingsDialog(ChromeDialog):
         self.notify = QCheckBox(t("show_notifications", self.lang))
         self.notify.setChecked(bool(config.get("show_notifications", True)))
         opts.addWidget(self.notify)
+        layout.addLayout(opts)
+        layout.addStretch(1)
 
+        layout = new_page()  # Güncellemeler
+        opts = QVBoxLayout()
+        opts.setSpacing(8)
+        opts.setContentsMargins(0, 0, 0, 0)
         self.auto_update = QCheckBox(t("auto_update_check", self.lang))
         self.auto_update.setChecked(bool(config.get("auto_update_check", True)))
         self.auto_update.setToolTip(t("auto_update_hint", self.lang))
@@ -177,8 +206,27 @@ class SettingsDialog(ChromeDialog):
         ff.setWordWrap(True)
         info.addWidget(ff)
         layout.addLayout(info)
-
         layout.addStretch(1)
+
+        self.nav_buttons: list[QPushButton] = []
+        for index, (key, icon) in enumerate((("settings_general", "settings"), ("updates", "update"))):
+            btn = QPushButton(t(key, self.lang), self.sidebar)
+            btn.setObjectName("nav_btn")
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+            btn.setFixedHeight(38)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setIcon(icons.menu_icon(icon))  # mor dişli, yeşil oklar
+            btn.clicked.connect(lambda _=False, i=index: self._switch_tab(i))
+            side_layout.addWidget(btn)
+            self.nav_buttons.append(btn)
+        side_layout.addStretch()
+        self._fit_sidebar()
+        self.nav_buttons[0].setChecked(True)
+        body_row.addWidget(self.sidebar)
+        body_row.addWidget(self.stack, 1)
+        outer.addLayout(body_row, 1)
+        layout = outer
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -204,6 +252,20 @@ class SettingsDialog(ChromeDialog):
             self.finished.connect(self._cleanup_updater)
 
         fit_text_widgets(self)
+
+    def _fit_sidebar(self):
+        """Seçili sekme kalın yazılır; en uzun ad kalınken de sığsın (Lumina ile aynı hesap)."""
+        font = QFont(self.nav_buttons[0].font())
+        font.setPixelSize(13)
+        font.setBold(True)
+        text = max(QFontMetrics(font).horizontalAdvance(b.text()) for b in self.nav_buttons)
+        # 8 + 8 kenar boşluğu + 2 çerçeve, 10 sol dolgu, 16 simge + 4 ara, 16 sağ dolgu, 8 nefes payı
+        self.sidebar.setFixedWidth(max(150, text + 72))
+
+    def _switch_tab(self, index: int):
+        self.stack.setCurrentIndex(index)
+        for i, btn in enumerate(self.nav_buttons):
+            btn.setChecked(i == index)
 
     def _icon_color(self) -> str:
         """Düğme simgeleri seçilen vurguya uysun (açık temada okunur koyu ton)."""
