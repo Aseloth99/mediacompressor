@@ -224,22 +224,28 @@ def _hex_rgb(color: str) -> tuple[int, int, int]:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
 
-def _chevron_url(color: str) -> str:
-    """Gerçek ok görseli — CSS üçgen Windows'ta siyah kareye dönüşüyor."""
-    dest = os.path.join(tempfile.gettempdir(), f"ms_chevron_{color.lstrip('#')}.png")
-    try:
-        from PIL import Image, ImageDraw
-        img = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        r, g, b = _hex_rgb(color)
-        draw.polygon([(4, 7), (16, 7), (10, 13)], fill=(r, g, b, 255))
-        img.save(dest, "PNG")
-    except Exception:
-        pass
-    return dest.replace("\\", "/")
-
-
 _CHECK_SCALE = 4  # 16 px kutu 64 px çizilir; Qt kutuya küçültür (%150 ölçekte tik bulanık olmasın)
+
+
+def _chevron_url(color: str) -> str:
+    """Açılır liste oku (CSS üçgen Windows'ta siyah kareye dönüşüyor, gerçek görsel gerekir). Lumina/FlexiKey/
+    TransferTCP ile aynı çizim: 12x12 kutuda (2.5,4.5)-(6,8)-(9.5,4.5), 1.5 px yuvarlak uçlu kalem, 4x PNG, soluk
+    yazı renginde; üzerine gelince, açıkken ve pasifken değişmez. QImage ile çizilir (QGuiApplication gerekmez)."""
+    s = _CHECK_SCALE
+    dest = os.path.join(tempfile.gettempdir(), f"ms_chev_{color.lstrip('#').lower()}_x{s}.png")
+    if not os.path.exists(dest):
+        img = QImage(12 * s, 12 * s, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(color), 1.5 * s)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawPolyline(QPolygonF([QPointF(2.5 * s, 4.5 * s), QPointF(6 * s, 8 * s), QPointF(9.5 * s, 4.5 * s)]))
+        painter.end()
+        img.save(dest, "PNG")
+    return dest.replace("\\", "/")
 
 
 def _check_url(color: str) -> str:
@@ -416,7 +422,7 @@ def _build(p: dict) -> str:
             padding: 0px 10px;
             font-size: 9pt;
             font-weight: 600;
-            border-radius: 7px;
+            border-radius: 6px;
             min-height: 28px;
         }}
         QPushButton[class="ghost-mini"]:checked {{
@@ -447,7 +453,7 @@ def _build(p: dict) -> str:
         }}
 
         QPushButton[class="segment"] {{
-            border-radius: 8px;
+            border-radius: 10px;
             padding: 0px 12px;
             min-height: 30px;
         }}
@@ -608,13 +614,13 @@ def _build(p: dict) -> str:
             subcontrol-origin: padding;
             subcontrol-position: center right;
             border: none;
-            width: 22px;
+            width: 28px;
             background: transparent;
         }}
         QComboBox::down-arrow {{
             image: url("{chev}");
-            width: 10px;
-            height: 6px;
+            width: 12px;
+            height: 12px;
         }}
         QComboBox QAbstractItemView {{
             background-color: {p['raised']};

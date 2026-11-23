@@ -950,5 +950,109 @@ class MenuIconTableTests(_Base):
             self.assertEqual(_top_colors(icons.menu_icon("settings"), count=1), ["#8b5cf6"], "mor dişli vurguyu izlemez")
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Dört uygulamada aynı görünüm (23 Kasım 2026): düğme köşeleri, 36 px açılır liste, aynı chevron oku, aynı kaydırma
+# çubuğu, aynı yazı boyları. MediaCompressor'ın kaydırma çubuğu ve yazı boyları ortak ölçünün kaynağıdır.
+# ---------------------------------------------------------------------------------------------------------------
+def _strict_rule(sheet: str, selector: str) -> str:
+    """Seçici kuralın başında durmalı (ör. "QPushButton" araması "QFrame#toast QPushButton"a takılmasın)."""
+    match = re.search(r"(?:^|\}|\*/)\s*" + re.escape(selector) + r"\s*\{([^}]*)\}", sheet)
+    assert match, selector
+    return " ".join(match.group(1).split())
+
+
+class SharedLookTests(_Base):
+    def _sheets(self):
+        from src.utils import theme_manager as tm
+
+        for base, dark in ((tm.DARK, True), (tm.LIGHT, False)):
+            p = tm._with_accent(base, "cyan", dark)
+            yield dark, p, tm._build(p)
+
+    def test_button_corners_normal_and_primary_10_small_6(self) -> None:
+        for _dark, _p, sheet in self._sheets():
+            self.assertIn("border-radius: 10px;", _strict_rule(sheet, "QPushButton"))
+            self.assertNotIn("border-radius", _strict_rule(sheet, 'QPushButton[class="primary"]'), "10 px'i devralır")
+            self.assertIn("border-radius: 10px;", _strict_rule(sheet, 'QPushButton[class="segment"]'))
+            for small in ('QPushButton[class="ghost-mini"]', 'QPushButton[class="title-button"]',
+                          'QPushButton[class="title-button-close"]', 'QPushButton[class="menu-button"]',
+                          "QFrame#toast QPushButton#toast_action"):
+                self.assertIn("border-radius: 6px;", _strict_rule(sheet, small), small)
+            # bilerek farklı: hap biçimli ön ayar çipi ve yuvarlak bildirim kapatma düğmesi
+            self.assertIn("border-radius: 14px;", _strict_rule(sheet, 'QPushButton[class="chip"]'))
+            self.assertIn("border-radius: 12px;", _strict_rule(sheet, "QFrame#toast QPushButton#toast_close"))
+
+    def test_combo_box_and_line_edit_are_36_px(self) -> None:
+        from PyQt6.QtWidgets import QComboBox, QLineEdit, QVBoxLayout, QWidget
+
+        theme = ThemeManager(self.app)
+        for name in ("dark", "light"):
+            theme.apply_from_setting(name, "cyan")
+            host = QWidget()
+            self.addCleanup(host.deleteLater)
+            lay = QVBoxLayout(host)
+            combo, edit = QComboBox(), QLineEdit()
+            combo.addItems(["Dengeli", "Yüksek"])
+            lay.addWidget(combo)
+            lay.addWidget(edit)
+            host.show()
+            _settle()
+            self.assertEqual((combo.height(), edit.height()), (36, 36), name)
+
+    def test_combo_arrow_is_the_shared_chevron(self) -> None:
+        from PyQt6.QtGui import QColor, QImage
+
+        from src.utils import theme_manager as tm
+
+        for _dark, p, sheet in self._sheets():
+            drop = _strict_rule(sheet, "QComboBox::drop-down")
+            for decl in ("subcontrol-origin: padding;", "subcontrol-position: center right;", "width: 28px;",
+                         "border: none;", "background: transparent;"):
+                self.assertIn(decl, drop)
+            arrow = _strict_rule(sheet, "QComboBox::down-arrow")
+            self.assertIn(f"ms_chev_{p['text_muted'].lstrip('#').lower()}_x4.png", arrow)
+            self.assertIn("width: 12px; height: 12px;", arrow)
+            self.assertNotRegex(sheet, r"QComboBox::(down-arrow|drop-down):(hover|on|disabled|pressed)",
+                                "ok üzerine gelince/açıkken/pasifken değişmez")
+            img = QImage(tm._chevron_url(p["text_muted"]))
+            s = 4
+            self.assertEqual((img.width(), img.height()), (12 * s, 12 * s))
+            self.assertEqual(img.pixelColor(6 * s, 8 * s - 1).name(), QColor(p["text_muted"]).name(), "uç")
+            self.assertGreater(img.pixelColor(round(4.25 * s), round(6.25 * s)).alpha(), 200, "sol kol")
+            self.assertEqual(img.pixelColor(6 * s, round(5.5 * s)).alpha(), 0, "içi boş (dolu üçgen değil)")
+            self.assertEqual(img.pixelColor(2, 2).alpha(), 0)
+
+    def test_scrollbar_is_the_shared_spec(self) -> None:
+        for dark, p, sheet in self._sheets():
+            track, handle = ("#1f1f1f", "#575757") if dark else ("#d8d8d8", "#a3a3a3")
+            self.assertEqual(p["scroll"], handle)
+            for axis, size, minimum in (("vertical", "width", "min-height"), ("horizontal", "height", "min-width")):
+                bar = _strict_rule(sheet, f"QScrollBar:{axis}")
+                for decl in (f"background: {track};", f"{size}: 10px;", "margin: 2px;", "border-radius: 5px;"):
+                    self.assertIn(decl, bar, axis)
+                grip = _strict_rule(sheet, f"QScrollBar::handle:{axis}")
+                for decl in (f"background: {handle};", "border-radius: 5px;", f"{minimum}: 28px;"):
+                    self.assertIn(decl, grip, axis)
+                hover = _strict_rule(sheet, f"QScrollBar::handle:{axis}:hover, QScrollBar::handle:{axis}:pressed")
+                self.assertIn(f"background: {p['accent']};", hover)
+
+    def test_font_roles(self) -> None:
+        for _dark, _p, sheet in self._sheets():
+            self.assertIn("font-size: 10pt;", _strict_rule(sheet, "*"), "gövde")
+            title = _strict_rule(sheet, "QLabel#title_label")
+            self.assertIn("font-size: 9.5pt;", title)
+            self.assertIn("font-weight: 600;", title)
+            header = _strict_rule(sheet, "QLabel#section_header")
+            self.assertIn("font-size: 12pt;", header)
+            self.assertIn("font-weight: 700;", header)
+            self.assertIn("font-size: 9pt;", _strict_rule(sheet, "QLabel#hint_label"))
+            button = _strict_rule(sheet, "QPushButton")
+            self.assertIn("font-size: 10pt;", button)
+            self.assertIn("font-weight: 600;", button)
+            for small in ('QPushButton[class="ghost-mini"]', 'QPushButton[class="menu-button"]'):
+                self.assertIn("font-size: 9pt;", _strict_rule(sheet, small), small)
+                self.assertIn("font-weight: 600;", _strict_rule(sheet, small), small)
+
+
 if __name__ == "__main__":
     unittest.main()
