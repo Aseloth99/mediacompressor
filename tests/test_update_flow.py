@@ -119,12 +119,22 @@ class UpdateDialogTests(ModalGuard, unittest.TestCase):
         self.assertEqual(self._visible(dialog), {"cancel_btn", "progress_bar", "progress_label"})
         self.assertEqual((dialog.progress_bar.minimum(), dialog.progress_bar.maximum()), (0, 0), "ilk ilerlemeye dek belirsiz")
 
+    def test_percent_in_english(self) -> None:
+        dialog = self._dialog(lang="en")
+        dialog.update_btn.click()
+        dialog.update_download_progress(5_000_000_000, 6_000_000_000, 0.0)
+        dialog.progress_bar.finish_animation()
+        self.assertIn("(83%)", dialog.progress_label.text())
+        self.assertEqual(dialog.progress_bar.text(), "83%")
+
     def test_progress_shows_percent_size_and_speed_beyond_two_gigabytes(self) -> None:
         dialog = self._dialog()
         dialog.update_btn.click()
         dialog.update_download_progress(5_000_000_000, 6_000_000_000, 2.5)
         self.assertEqual(dialog.progress_bar.value(), 83)
-        self.assertIn("4.7 GB / 5.6 GB (83%)", dialog.progress_label.text())
+        self.assertIn("4.7 GB / 5.6 GB (%83)", dialog.progress_label.text())
+        dialog.progress_bar.finish_animation()
+        self.assertEqual(dialog.progress_bar.text(), "%83", "the bar and the line write the percent alike")
         self.assertIn("2.50 MB/s", dialog.progress_label.text())
         dialog.update_download_progress(1024, 0, 0.0)  # toplam bilinmiyor
         self.assertEqual(dialog.progress_bar.maximum(), 0)

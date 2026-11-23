@@ -5,8 +5,8 @@
 # tests/test_packaging_config.py ikisinin esitligini denetler.
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 6, 0),
-    prodvers=(1, 0, 6, 0),
+    filevers=(1, 0, 7, 0),
+    prodvers=(1, 0, 7, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -20,11 +20,11 @@ VSVersionInfo(
         '041F04B0',
         [StringStruct('CompanyName', 'MediaCompressor'),
          StringStruct('FileDescription', 'Medya Sıkıştırıcı'),
-         StringStruct('FileVersion', '1.0.6.0'),
+         StringStruct('FileVersion', '1.0.7.0'),
          StringStruct('InternalName', 'MediaCompressor'),
          StringStruct('OriginalFilename', 'MediaCompressor.exe'),
          StringStruct('ProductName', 'Medya Sıkıştırıcı'),
-         StringStruct('ProductVersion', '1.0.6.0')])
+         StringStruct('ProductVersion', '1.0.7.0')])
     ]),
     VarFileInfo([VarStruct('Translation', [1055, 1200])])
   ]

@@ -85,6 +85,8 @@ Both switches are in **Settings**. A source checkout or a build of your own chec
 
 Download the Windows build from **<https://macik.com.tr>**. It is a single `.exe`; no installer is needed.
 
+Each [GitHub release](https://github.com/Aseloth99/mediacompressor/releases/latest) also carries an exe built from this repository's source at that version's tag. It takes its updates from the same channel as the official build.
+
 ### From source
 
 Requires Python 3.13 (the version the code is developed and tested on).

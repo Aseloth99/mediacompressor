@@ -85,6 +85,8 @@ Otomatik denetim açıkken uygulama günde bir kez `macik.com.tr`'ye yeni sürü
 
 Windows sürümünü **<https://macik.com.tr>** adresinden indirin. Tek bir `.exe`'dir; kurulum gerekmez.
 
+Her [GitHub sürümünde](https://github.com/Aseloth99/mediacompressor/releases/latest) o sürümün etiketindeki kaynaktan derlenmiş bir exe de bulunur. Güncellemelerini resmî sürümle aynı kanaldan alır.
+
 ### Kaynaktan
 
 Python 3.13 gerekir (kodun geliştirildiği ve denendiği sürüm).

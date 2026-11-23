@@ -92,6 +92,7 @@ class UpdateDialog(ChromeDialog):
 
         self.progress_bar = SmoothProgressBar()
         self.progress_bar.setMinimumHeight(18)
+        self.progress_bar.setFormat(t("pct", self.lang).format("%p"))  # the bar and the line under it alike: "%41" in Turkish, "41%" in English
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
         self.progress_label = QLabel()
@@ -194,7 +195,7 @@ class UpdateDialog(ChromeDialog):
             percent = min(int((downloaded / total) * 100), 100)
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(percent)
-            text = f"{format_bytes(downloaded)} / {format_bytes(total)} ({percent}%)"
+            text = f"{format_bytes(downloaded)} / {format_bytes(total)} ({t('pct', self.lang).format(percent)})"
         else:
             self.progress_bar.setRange(0, 0)
             text = t("update_downloaded_bytes", self.lang).format(format_bytes(downloaded))
