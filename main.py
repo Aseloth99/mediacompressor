@@ -189,6 +189,7 @@ def main():
     QTimer.singleShot(2500, updater.start)
     log_info(f"{APP_NAME} {VERSION} başlatıldı")
     code = app.exec()
+    updater.stop()  # süren güncelleme denetimi (yeniden deneme beklemesi dahil) bitmeden QThread yok edilmesin
     lock.unlock()
     return code
 

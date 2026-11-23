@@ -4,7 +4,7 @@ APP_NAME = "Medya Sıkıştırıcı"
 APP_ID = "MediaCompressor"
 # Eski sürümlerin kimliği: ayar klasörü, indirilen ffmpeg ve başlangıç kaydı bu adla duruyor (geçiş için okunur).
 LEGACY_APP_ID = "MedyaSikistirici"
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 ORGANIZATION = "MediaCompressor"
 UPDATE_CHECK_URL = "https://macik.com.tr/api/updates/check"
 EXE_NAME = "MediaCompressor.exe"
